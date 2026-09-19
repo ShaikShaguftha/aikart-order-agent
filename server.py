@@ -143,8 +143,9 @@ def get_audit_logs():
 
 
 @app.get("/ui", response_class=HTMLResponse, tags=["Web Interface"])
+
 def serve_chat_ui():
-    """Serves the web chat frontend interface."""
+    """Serves the web chat frontend interface with Apple glassmorphism styled in Gold & Blue."""
     return """
 <!DOCTYPE html>
 <html lang="en">
@@ -152,150 +153,339 @@ def serve_chat_ui():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luintix | Smart Order Assistant</title>
+    
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
+        :root {
+            --gold-accent: #D4AF37;
+            --purple-mute: #6B5B95;
+            --royal-blue: #3A61D0;
+            --bright-blue: #2563EB;
+            --apple-dark: #1D1D1F;
+            --apple-secondary: #86868B;
+            
+            --lux-gradient: linear-gradient(135deg, #B89255 0%, #6B5B95 35%, #3A61D0 70%, #2563EB 100%);
+            --header-gradient: linear-gradient(135deg, #1E3A8A 0%, #3A61D0 40%, #6B5B95 75%, #B89255 100%);
+            --bubble-user-gradient: linear-gradient(135deg, #6B5B95 0%, #3A61D0 50%, #2563EB 100%);
+
+            --glass-bg: rgba(255, 255, 255, 0.72);
+            --glass-card: rgba(255, 255, 255, 0.82);
+            --glass-border: rgba(255, 255, 255, 0.65);
+            --glass-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
+            
+            --font-apple: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: linear-gradient(135deg, #e0f2fe 0%, #e0e7ff 50%, #f3e8ff 100%);
-            color: #1e1b4b;
+            font-family: var(--font-apple);
+            background: #F1F5F9;
+            color: var(--apple-dark);
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             padding: 16px;
+            position: relative;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
         }
-        .chat-container {
+
+        .ambient-bg {
+            position: absolute;
             width: 100%;
-            max-width: 460px;
+            height: 100%;
+            top: 0;
+            left: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(95px);
+            opacity: 0.4;
+        }
+
+        .blob-1 {
+            width: 420px;
+            height: 420px;
+            background: var(--gold-accent);
+            top: -90px;
+            left: -90px;
+        }
+
+        .blob-2 {
+            width: 480px;
+            height: 480px;
+            background: var(--royal-blue);
+            bottom: -100px;
+            right: -80px;
+        }
+
+        .blob-3 {
+            width: 380px;
+            height: 380px;
+            background: var(--purple-mute);
+            top: 45%;
+            left: 45%;
+            transform: translate(-50%, -50%);
+        }
+
+        .chat-container {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 450px;
             height: 85vh;
-            background: linear-gradient(180deg, #f0f9ff 0%, #f5f3ff 100%);
-            border-radius: 24px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(30px) saturate(190%);
+            -webkit-backdrop-filter: blur(30px) saturate(190%);
+            border-radius: 28px;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 20px 40px rgba(125, 211, 252, 0.3), 0 10px 25px rgba(192, 132, 252, 0.2);
+            box-shadow: var(--glass-shadow);
+            border: 1px solid var(--glass-border);
             overflow: hidden;
-            border: 1px solid rgba(186, 230, 253, 0.8);
         }
+
         .chat-header {
-            background: linear-gradient(135deg, #a5f3fc 0%, #c084fc 100%);
-            padding: 18px 22px;
+            background: var(--header-gradient);
+            padding: 20px 24px;
             display: flex;
             align-items: center;
-            box-shadow: 0 4px 15px rgba(165, 243, 252, 0.4);
+            justify-content: space-between;
+            box-shadow: 0 4px 18px rgba(30, 58, 138, 0.25);
         }
-        .header-info { display: flex; flex-direction: column; }
-        .brand-title {
-            font-size: 1.35rem;
-            font-weight: 500;
-            color: #2e1065;
-            letter-spacing: -0.01em;
-        }
-        .chat-box {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
+
+        .header-info {
             display: flex;
             flex-direction: column;
-            gap: 14px;
-            background: rgba(255, 255, 255, 0.4);
+            gap: 2px;
         }
+
+        .brand-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #FFFFFF !important;
+            letter-spacing: -0.022em;
+            text-shadow: 0 2px 4px rgba(15, 23, 42, 0.35);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: #F1F5F9;
+            font-weight: 500;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #34C759;
+            border-radius: 50%;
+            box-shadow: 0 0 6px rgba(52, 199, 89, 0.8);
+        }
+
+        /* CHAT BOX AREA */
+        .chat-box {
+            flex: 1;
+            padding: 22px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background: transparent;
+        }
+
         .message {
             max-width: 86%;
-            padding: 12px 16px;
-            border-radius: 18px;
+            padding: 13px 17px;
+            border-radius: 20px;
             font-size: 0.92rem;
-            line-height: 1.5;
+            line-height: 1.45;
             word-wrap: break-word;
+            overflow-wrap: break-word;
+            letter-spacing: -0.01em;
         }
+
         .user-msg {
-            background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
-            color: #ffffff;
+            background: var(--bubble-user-gradient);
+            color: #FFFFFF !important;
             align-self: flex-end;
             border-bottom-right-radius: 4px;
-            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
+            box-shadow: 0 4px 14px rgba(58, 97, 208, 0.25);
         }
+
         .agent-msg {
-            background: linear-gradient(135deg, #e0f2fe 0%, #f3e8ff 100%);
-            color: #1e1b4b;
+            background: var(--glass-card);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            color: var(--apple-dark);
             align-self: flex-start;
             border-bottom-left-radius: 4px;
-            border: 1px solid #c7d2fe;
-            box-shadow: 0 2px 8px rgba(147, 51, 234, 0.05);
+            border: 1px solid var(--glass-border);
+            max-width: 90%;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
         }
         
-        .agent-msg p { margin-bottom: 8px; }
+        .agent-msg p { 
+            margin-bottom: 8px; 
+            color: var(--apple-dark); 
+        }
         .agent-msg p:last-child { margin-bottom: 0; }
-        .agent-msg strong { color: #6366f1; font-weight: 600; }
+        
+        .agent-msg strong { 
+            color: var(--royal-blue); 
+            font-weight: 600; 
+        }
+
+        .agent-msg h1, .agent-msg h2, .agent-msg h3, .agent-msg h4 {
+            font-weight: 700;
+            margin: 14px 0 8px 0;
+            letter-spacing: -0.02em;
+            color: var(--royal-blue);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .agent-msg h1::before, 
+        .agent-msg h2::before, 
+        .agent-msg h3::before {
+            content: none !important;
+        }
+
+        .agent-msg h1 { font-size: 1.12rem; }
+        .agent-msg h2 { font-size: 1.02rem; }
+        .agent-msg h3 { font-size: 0.95rem; }
+
+        .agent-msg hr {
+            border: none;
+            border-top: 1px solid rgba(209, 209, 214, 0.6);
+            margin: 14px 0;
+        }
+
+        .agent-msg ul, .agent-msg ol {
+            margin: 8px 0 12px 20px;
+            padding: 0;
+        }
+
+        .agent-msg li { 
+            margin-bottom: 6px; 
+            line-height: 1.4;
+        }
+
+        /* TABLE WRAPPER - ONLY SCROLLS TABLES HORIZONTALLY */
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            margin: 12px 0;
+            border-radius: 12px;
+            border: 1px solid rgba(226, 232, 240, 0.8);
+        }
+
         .agent-msg table {
             width: 100%;
             border-collapse: collapse;
-            margin: 10px 0;
-            font-size: 0.82rem;
-            background: rgba(255, 255, 255, 0.7);
-            border-radius: 8px;
-            overflow: hidden;
-            width: 100% !important;
-            max-width: 100% !important;
-            table-layout: fixed !important;
-            word-wrap: break-word !important;
+            font-size: 0.8rem;
+            background: rgba(255, 255, 255, 0.85);
         }
         
         .agent-msg th, .agent-msg td {
-            border: 1px solid #cbd5e1;
+            border: 1px solid #E5E5EA;
             padding: 8px 10px;
             text-align: left;
+            color: var(--apple-dark);
+            white-space: normal;
         }
-        .agent-msg th { background: #dbeafe; color: #1e40af; font-weight: 600; }
-        .agent-msg ul, .agent-msg ol { margin-left: 18px; margin-bottom: 8px; }
+
+        .agent-msg th { 
+            background: rgba(242, 242, 247, 0.9); 
+            font-weight: 600;
+            color: var(--royal-blue);
+        }
+
         .input-area {
             display: flex;
-            padding: 14px 16px;
-            background: #f8fafc;
-            border-top: 1px solid #e0e7ff;
+            padding: 16px 20px;
+            background: rgba(255, 255, 255, 0.55);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(226, 232, 240, 0.6);
             gap: 10px;
+            align-items: center;
         }
+
         .input-area input[type="text"] {
             flex: 1;
             padding: 12px 18px;
             border-radius: 20px;
-            border: 1.5px solid #bae6fd;
-            background: #ffffff;
-            color: #1e1b4b;
+            border: 1px solid rgba(209, 209, 214, 0.6);
+            background: rgba(255, 255, 255, 0.8);
+            color: var(--apple-dark);
+            font-family: var(--font-apple);
             font-size: 0.9rem;
             outline: none;
             transition: all 0.2s ease;
         }
-        .input-area input[type="text"]::placeholder { color: #94a3b8; }
-        .input-area input[type="text"]:focus {
-            border-color: #818cf8;
-            box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
+
+        .input-area input[type="text"]::placeholder { 
+            color: var(--apple-secondary); 
+            font-size: 0.88rem;
         }
+
+        .input-area input[type="text"]:focus {
+            border-color: var(--royal-blue);
+            background: #FFFFFF;
+            box-shadow: 0 0 0 3px rgba(58, 97, 208, 0.15);
+        }
+
         .input-area button {
-            background: linear-gradient(135deg, #a855f7 0%, #38bdf8 100%);
-            color: #ffffff;
+            background: var(--lux-gradient);
+            color: #FFFFFF !important;
             border: none;
-            padding: 12px 22px;
+            padding: 12px 20px;
             border-radius: 20px;
+            font-family: var(--font-apple);
             font-weight: 600;
             font-size: 0.9rem;
             cursor: pointer;
-            box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
-            transition: transform 0.1s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 12px rgba(58, 97, 208, 0.25);
+            transition: all 0.2s ease;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }
+
         .input-area button:hover {
-            opacity: 0.95;
+            opacity: 0.94;
             transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(168, 85, 247, 0.4);
         }
+
         .input-area button:active { transform: translateY(0); }
     </style>
 </head>
 <body>
+
+<div class="ambient-bg">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+</div>
+
 <div class="chat-container">
     <div class="chat-header">
         <div class="header-info">
             <span class="brand-title">Luintix Order Agent</span>
+            <div class="status-badge">
+                <span class="status-dot"></span> Active & Ready
+            </div>
         </div>
     </div>
     <div class="chat-box" id="chatBox">
@@ -358,9 +548,13 @@ def serve_chat_ui():
                 localStorage.setItem('luintix_session_id', sessionId);
             }
 
-
+            let parsedHtml = marked.parse(data.agent_response || 'No response returned.');
             
-            loadingDiv.innerHTML = marked.parse(data.agent_response || 'No response returned.');
+            // Wrap generated tables into .table-wrapper so only tables get horizontal scrollbars
+            parsedHtml = parsedHtml.replace(/<table>/g, '<div class="table-wrapper"><table>')
+                                   .replace(/<\/table>/g, '</table></div>');
+
+            loadingDiv.innerHTML = parsedHtml;
         } catch (err) {
             loadingDiv.textContent = `Error: ${err.message || 'Could not connect to backend server.'}`;
         }
@@ -371,8 +565,6 @@ def serve_chat_ui():
 </body>
 </html>
 """
-
-
 @app.get("/", include_in_schema=False)
 def root_redirect():
     return RedirectResponse(url="/ui")
