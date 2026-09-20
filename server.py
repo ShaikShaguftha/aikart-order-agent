@@ -145,7 +145,7 @@ def get_audit_logs():
 @app.get("/ui", response_class=HTMLResponse, tags=["Web Interface"])
 
 def serve_chat_ui():
-    """Serves the web chat frontend interface with a header 'Test Data' button and sample prompt modal."""
+    """Serves the web chat frontend interface with dynamic table fitting, primary blue headers, and conditional scrolling."""
     return """
 <!DOCTYPE html>
 <html lang="en">
@@ -162,14 +162,12 @@ def serve_chat_ui():
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
-            /* AIKart Design System Palette */
-            --primary-blue: #2E5FEA;     /* Primary Action & Headers */
-            --deep-navy: #0A0F1F;        /* Headings & Text */
-            --accent-blue: #4D7BF3;      /* Secondary Highlights & Hovers */
-            --bg-white: #FFFFFF;         /* Pure White */
-            --chat-bg: #F8FAFC;          /* Clean Light Tint for Messages */
+            --primary-blue: #2E5FEA;     
+            --deep-navy: #0A0F1F;        
+            --accent-blue: #4D7BF3;      
+            --bg-white: #FFFFFF;         
+            --chat-bg: #F8FAFC;          
 
-            /* Typography */
             --font-heading: 'Red Hat Display', sans-serif;
             --font-body: 'Poppins', sans-serif;
             --font-utility: 'Inter', sans-serif;
@@ -191,7 +189,7 @@ def serve_chat_ui():
 
         .chat-container {
             width: 100%;
-            max-width: 450px;
+            max-width: 480px; /* Slightly wider container for optimal reading */
             height: 85vh;
             background-color: var(--bg-white);
             border-radius: 24px;
@@ -338,11 +336,10 @@ def serve_chat_ui():
             font-size: 0.8rem;
             color: #64748B;
         }
-
-
+        
         .chat-box {
             flex: 1;
-            padding: 20px;
+            padding: 16px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
@@ -351,13 +348,14 @@ def serve_chat_ui():
         }
 
         .message {
-            max-width: 86%;
-            padding: 12px 16px;
+            max-width: 88%;
+            padding: 14px 16px;
             border-radius: 18px;
             font-family: var(--font-body);
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             line-height: 1.5;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         .user-msg {
@@ -373,9 +371,107 @@ def serve_chat_ui():
             align-self: flex-start;
             border-bottom-left-radius: 4px;
             border: 1px solid #E2E8F0;
-            max-width: 90%;
+            width: auto;
+            max-width: 96%; /* Allow agent bubbles with tables to utilize full width */
+            box-sizing: border-box;
         }
 
+        .agent-msg .table-wrapper {
+            width: 100%;
+            overflow-x: auto; /* Scrollbar shows ONLY if table naturally overflows */
+            margin: 12px 0 6px 0;
+            border-radius: 10px;
+            border: 1px solid #CBD5E1;
+            background: #FFFFFF;
+            box-shadow: 0 3px 10px rgba(10, 15, 31, 0.04);
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .agent-msg .table-wrapper::-webkit-scrollbar {
+            height: 5px;
+        }
+
+        .agent-msg .table-wrapper::-webkit-scrollbar-track {
+            background: #F1F5F9;
+            border-radius: 10px;
+        }
+
+        .agent-msg .table-wrapper::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 10px;
+        }
+
+        .agent-msg .table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-blue);
+        }
+
+        .agent-msg table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.82rem;
+            font-family: var(--font-utility);
+            background: #FFFFFF;
+            table-layout: auto;
+        }
+
+        .agent-msg th, 
+        .agent-msg td {
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+            line-height: 1.45;
+            border-bottom: 1px solid #E2E8F0;
+            border-right: 1px solid #E2E8F0;
+        }
+
+        .agent-msg th:last-child,
+        .agent-msg td:last-child {
+            border-right: none;
+        }
+
+        .agent-msg tr:last-child td {
+            border-bottom: none;
+        }
+
+        .agent-msg th {
+            background-color: var(--primary-blue);
+            color: #FFFFFF;
+            font-weight: 600;
+            font-family: var(--font-heading);
+            font-size: 0.83rem;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+        }
+
+        .agent-msg th:first-child {
+            border-top-left-radius: 8px;
+        }
+
+        .agent-msg th:last-child {
+            border-top-right-radius: 8px;
+        }
+
+        .agent-msg td {
+            white-space: normal;
+            word-break: normal;
+            color: var(--deep-navy);
+        }
+
+        .agent-msg td:first-child {
+            font-weight: 600;
+            color: #1E293B;
+            width: 28%;
+        }
+
+        .agent-msg ul, .agent-msg ol {
+            margin: 6px 0 6px 18px;
+            padding: 0;
+        }
+
+        .agent-msg li {
+            margin-bottom: 4px;
+        }
 
         .input-area {
             display: flex;
@@ -422,7 +518,6 @@ def serve_chat_ui():
 <body>
 
 <div class="chat-container">
-    <!-- HEADER -->
     <div class="chat-header">
         <div class="header-info">
             <span class="brand-title">Luintix Order Agent</span>
@@ -430,7 +525,7 @@ def serve_chat_ui():
                 <span class="status-dot"></span> Active & Ready
             </div>
         </div>
-        <button class="test-data-btn" onclick="toggleModal(true)">Test Data</button>
+        <button class="test-data-btn" onclick="toggleModal(true)"> Test Data</button>
     </div>
 
     <div class="modal-overlay" id="sampleModal">
@@ -546,7 +641,21 @@ def serve_chat_ui():
             }
 
             let parsedHtml = marked.parse(data.agent_response || 'No response returned.');
-            loadingDiv.innerHTML = parsedHtml;
+            
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = parsedHtml;
+
+            const tables = tempDiv.querySelectorAll('table');
+            tables.forEach(table => {
+                if (!table.parentElement.classList.contains('table-wrapper')) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'table-wrapper';
+                    table.parentNode.insertBefore(wrapper, table);
+                    wrapper.appendChild(table);
+                }
+            });
+
+            loadingDiv.innerHTML = tempDiv.innerHTML;
         } catch (err) {
             loadingDiv.textContent = `Error: ${err.message || 'Could not connect to backend server.'}`;
         }
@@ -557,6 +666,8 @@ def serve_chat_ui():
 </body>
 </html>
 """
+
+
 @app.get("/", include_in_schema=False)
 def root_redirect():
     return RedirectResponse(url="/ui")
