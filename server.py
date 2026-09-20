@@ -145,7 +145,7 @@ def get_audit_logs():
 @app.get("/ui", response_class=HTMLResponse, tags=["Web Interface"])
 
 def serve_chat_ui():
-    """Serves the web chat frontend interface with Apple glassmorphism styled in Gold & Blue."""
+    """Serves the web chat frontend interface with a header 'Test Data' button and sample prompt modal."""
     return """
 <!DOCTYPE html>
 <html lang="en">
@@ -154,111 +154,61 @@ def serve_chat_ui():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luintix | Smart Order Assistant</title>
     
+    <!-- Google Fonts: Red Hat Display, Poppins, Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@400;500;600&family=Red+Hat+Display:wght@600;700&display=swap" rel="stylesheet">
+
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
-            --gold-accent: #D4AF37;
-            --purple-mute: #6B5B95;
-            --royal-blue: #3A61D0;
-            --bright-blue: #2563EB;
-            --apple-dark: #1D1D1F;
-            --apple-secondary: #86868B;
-            
-            --lux-gradient: linear-gradient(135deg, #B89255 0%, #6B5B95 35%, #3A61D0 70%, #2563EB 100%);
-            --header-gradient: linear-gradient(135deg, #1E3A8A 0%, #3A61D0 40%, #6B5B95 75%, #B89255 100%);
-            --bubble-user-gradient: linear-gradient(135deg, #6B5B95 0%, #3A61D0 50%, #2563EB 100%);
+            /* AIKart Design System Palette */
+            --primary-blue: #2E5FEA;     /* Primary Action & Headers */
+            --deep-navy: #0A0F1F;        /* Headings & Text */
+            --accent-blue: #4D7BF3;      /* Secondary Highlights & Hovers */
+            --bg-white: #FFFFFF;         /* Pure White */
+            --chat-bg: #F8FAFC;          /* Clean Light Tint for Messages */
 
-            --glass-bg: rgba(255, 255, 255, 0.72);
-            --glass-card: rgba(255, 255, 255, 0.82);
-            --glass-border: rgba(255, 255, 255, 0.65);
-            --glass-shadow: 0 20px 40px rgba(15, 23, 42, 0.12);
-            
-            --font-apple: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            /* Typography */
+            --font-heading: 'Red Hat Display', sans-serif;
+            --font-body: 'Poppins', sans-serif;
+            --font-utility: 'Inter', sans-serif;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
         body {
-            font-family: var(--font-apple);
-            background: #F1F5F9;
-            color: var(--apple-dark);
+            font-family: var(--font-body);
+            background-color: #F1F5F9;
+            color: var(--deep-navy);
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             padding: 16px;
-            position: relative;
-            overflow: hidden;
             -webkit-font-smoothing: antialiased;
         }
 
-        .ambient-bg {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-            z-index: 0;
-            overflow: hidden;
-            pointer-events: none;
-        }
-
-        .blob {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(95px);
-            opacity: 0.4;
-        }
-
-        .blob-1 {
-            width: 420px;
-            height: 420px;
-            background: var(--gold-accent);
-            top: -90px;
-            left: -90px;
-        }
-
-        .blob-2 {
-            width: 480px;
-            height: 480px;
-            background: var(--royal-blue);
-            bottom: -100px;
-            right: -80px;
-        }
-
-        .blob-3 {
-            width: 380px;
-            height: 380px;
-            background: var(--purple-mute);
-            top: 45%;
-            left: 45%;
-            transform: translate(-50%, -50%);
-        }
-
         .chat-container {
-            position: relative;
-            z-index: 10;
             width: 100%;
             max-width: 450px;
             height: 85vh;
-            background: var(--glass-bg);
-            backdrop-filter: blur(30px) saturate(190%);
-            -webkit-backdrop-filter: blur(30px) saturate(190%);
-            border-radius: 28px;
+            background-color: var(--bg-white);
+            border-radius: 24px;
             display: flex;
             flex-direction: column;
-            box-shadow: var(--glass-shadow);
-            border: 1px solid var(--glass-border);
+            box-shadow: 0 15px 35px rgba(10, 15, 31, 0.08);
+            border: 1px solid #E2E8F0;
             overflow: hidden;
+            position: relative;
         }
 
         .chat-header {
-            background: var(--header-gradient);
-            padding: 20px 24px;
+            background-color: var(--primary-blue);
+            padding: 16px 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 4px 18px rgba(30, 58, 138, 0.25);
         }
 
         .header-info {
@@ -268,21 +218,21 @@ def serve_chat_ui():
         }
 
         .brand-title {
-            font-size: 1.3rem;
+            font-family: var(--font-heading);
+            font-size: 1.25rem;
             font-weight: 700;
-            color: #FFFFFF !important;
-            letter-spacing: -0.022em;
-            text-shadow: 0 2px 4px rgba(15, 23, 42, 0.35);
+            color: var(--bg-white);
+            letter-spacing: -0.01em;
         }
 
         .status-badge {
+            font-family: var(--font-utility);
             display: inline-flex;
             align-items: center;
             gap: 6px;
             font-size: 0.78rem;
-            color: #F1F5F9;
+            color: rgba(255, 255, 255, 0.95);
             font-weight: 500;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }
 
         .status-dot {
@@ -290,196 +240,189 @@ def serve_chat_ui():
             height: 8px;
             background-color: #34C759;
             border-radius: 50%;
-            box-shadow: 0 0 6px rgba(52, 199, 89, 0.8);
+            box-shadow: 0 0 6px #34C759;
         }
 
-        /* CHAT BOX AREA */
+        .test-data-btn {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: var(--bg-white);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-family: var(--font-utility);
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .test-data-btn:hover {
+            background-color: rgba(255, 255, 255, 0.35);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 15, 31, 0.4);
+            backdrop-filter: blur(3px);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background: var(--bg-white);
+            border-radius: 18px;
+            width: 100%;
+            max-height: 80%;
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #E2E8F0;
+            padding-bottom: 10px;
+        }
+
+        .modal-header h3 {
+            font-family: var(--font-heading);
+            font-size: 1.1rem;
+            color: var(--deep-navy);
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            color: #64748B;
+        }
+
+        .sample-item {
+            background: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sample-item:hover {
+            border-color: var(--primary-blue);
+            background: #F0F4FF;
+        }
+
+        .sample-id {
+            font-family: var(--font-utility);
+            font-weight: 600;
+            color: var(--primary-blue);
+            font-size: 0.88rem;
+        }
+
+        .sample-desc {
+            font-size: 0.8rem;
+            color: #64748B;
+        }
+
+
         .chat-box {
             flex: 1;
-            padding: 22px;
+            padding: 20px;
             overflow-y: auto;
-            overflow-x: hidden;
             display: flex;
             flex-direction: column;
             gap: 16px;
-            background: transparent;
+            background-color: var(--bg-white);
         }
 
         .message {
             max-width: 86%;
-            padding: 13px 17px;
-            border-radius: 20px;
-            font-size: 0.92rem;
-            line-height: 1.45;
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-family: var(--font-body);
+            font-size: 0.9rem;
+            line-height: 1.5;
             word-wrap: break-word;
-            overflow-wrap: break-word;
-            letter-spacing: -0.01em;
         }
 
         .user-msg {
-            background: var(--bubble-user-gradient);
-            color: #FFFFFF !important;
+            background-color: var(--primary-blue);
+            color: var(--bg-white);
             align-self: flex-end;
             border-bottom-right-radius: 4px;
-            box-shadow: 0 4px 14px rgba(58, 97, 208, 0.25);
         }
 
         .agent-msg {
-            background: var(--glass-card);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            color: var(--apple-dark);
+            background: var(--chat-bg);
+            color: var(--deep-navy);
             align-self: flex-start;
             border-bottom-left-radius: 4px;
-            border: 1px solid var(--glass-border);
+            border: 1px solid #E2E8F0;
             max-width: 90%;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
-        }
-        
-        .agent-msg p { 
-            margin-bottom: 8px; 
-            color: var(--apple-dark); 
-        }
-        .agent-msg p:last-child { margin-bottom: 0; }
-        
-        .agent-msg strong { 
-            color: var(--royal-blue); 
-            font-weight: 600; 
         }
 
-        .agent-msg h1, .agent-msg h2, .agent-msg h3, .agent-msg h4 {
-            font-weight: 700;
-            margin: 14px 0 8px 0;
-            letter-spacing: -0.02em;
-            color: var(--royal-blue);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .agent-msg h1::before, 
-        .agent-msg h2::before, 
-        .agent-msg h3::before {
-            content: none !important;
-        }
-
-        .agent-msg h1 { font-size: 1.12rem; }
-        .agent-msg h2 { font-size: 1.02rem; }
-        .agent-msg h3 { font-size: 0.95rem; }
-
-        .agent-msg hr {
-            border: none;
-            border-top: 1px solid rgba(209, 209, 214, 0.6);
-            margin: 14px 0;
-        }
-
-        .agent-msg ul, .agent-msg ol {
-            margin: 8px 0 12px 20px;
-            padding: 0;
-        }
-
-        .agent-msg li { 
-            margin-bottom: 6px; 
-            line-height: 1.4;
-        }
-
-        /* TABLE WRAPPER - ONLY SCROLLS TABLES HORIZONTALLY */
-        .table-wrapper {
-            width: 100%;
-            overflow-x: auto;
-            margin: 12px 0;
-            border-radius: 12px;
-            border: 1px solid rgba(226, 232, 240, 0.8);
-        }
-
-        .agent-msg table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.8rem;
-            background: rgba(255, 255, 255, 0.85);
-        }
-        
-        .agent-msg th, .agent-msg td {
-            border: 1px solid #E5E5EA;
-            padding: 8px 10px;
-            text-align: left;
-            color: var(--apple-dark);
-            white-space: normal;
-        }
-
-        .agent-msg th { 
-            background: rgba(242, 242, 247, 0.9); 
-            font-weight: 600;
-            color: var(--royal-blue);
-        }
 
         .input-area {
             display: flex;
             padding: 16px 20px;
-            background: rgba(255, 255, 255, 0.55);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-top: 1px solid rgba(226, 232, 240, 0.6);
+            background: var(--bg-white);
+            border-top: 1px solid #E2E8F0;
             gap: 10px;
-            align-items: center;
         }
 
         .input-area input[type="text"] {
             flex: 1;
-            padding: 12px 18px;
-            border-radius: 20px;
-            border: 1px solid rgba(209, 209, 214, 0.6);
-            background: rgba(255, 255, 255, 0.8);
-            color: var(--apple-dark);
-            font-family: var(--font-apple);
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1.5px solid #E2E8F0;
+            background: #F8FAFC;
+            color: var(--deep-navy);
+            font-family: var(--font-body);
             font-size: 0.9rem;
             outline: none;
-            transition: all 0.2s ease;
-        }
-
-        .input-area input[type="text"]::placeholder { 
-            color: var(--apple-secondary); 
-            font-size: 0.88rem;
         }
 
         .input-area input[type="text"]:focus {
-            border-color: var(--royal-blue);
-            background: #FFFFFF;
-            box-shadow: 0 0 0 3px rgba(58, 97, 208, 0.15);
+            border-color: var(--primary-blue);
+            background: var(--bg-white);
         }
 
         .input-area button {
-            background: var(--lux-gradient);
-            color: #FFFFFF !important;
+            background-color: var(--primary-blue);
+            color: var(--bg-white);
             border: none;
             padding: 12px 20px;
-            border-radius: 20px;
-            font-family: var(--font-apple);
+            border-radius: 12px;
+            font-family: var(--font-body);
             font-weight: 600;
             font-size: 0.9rem;
             cursor: pointer;
-            box-shadow: 0 4px 12px rgba(58, 97, 208, 0.25);
-            transition: all 0.2s ease;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }
 
         .input-area button:hover {
-            opacity: 0.94;
-            transform: translateY(-1px);
+            background-color: var(--accent-blue);
         }
-
-        .input-area button:active { transform: translateY(0); }
     </style>
 </head>
 <body>
 
-<div class="ambient-bg">
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
-    <div class="blob blob-3"></div>
-</div>
-
 <div class="chat-container">
+    <!-- HEADER -->
     <div class="chat-header">
         <div class="header-info">
             <span class="brand-title">Luintix Order Agent</span>
@@ -487,22 +430,78 @@ def serve_chat_ui():
                 <span class="status-dot"></span> Active & Ready
             </div>
         </div>
+        <button class="test-data-btn" onclick="toggleModal(true)">Test Data</button>
     </div>
+
+    <div class="modal-overlay" id="sampleModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Sample Order to Test</h3>
+                <button class="close-btn" onclick="toggleModal(false)">&times;</button>
+            </div>
+            
+            <div class="sample-item" onclick="selectSample('What is the status of my order ORD-5001?')">
+                <div>
+                    <div class="sample-id">ORD-5001 (Wireless Headphones)</div>
+                    <div class="sample-desc">Status: DELIVERED | $45.00</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Can I get a refund for ORD-5002?')">
+                <div>
+                    <div class="sample-id">ORD-5002 (Smart Gaming Monitor)</div>
+                    <div class="sample-desc">Status: DELIVERED | $250.00 (Requires Escalation)</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Where is my package for order ORD-5003?')">
+                <div>
+                    <div class="sample-id">ORD-5003 (USB-C Hub)</div>
+                    <div class="sample-desc">Status: PROACTIVE_ALERT / DELAYED</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Track order ORD-5004')">
+                <div>
+                    <div class="sample-id">ORD-5004 (Ergonomic Keyboard)</div>
+                    <div class="sample-desc">Status: PROCESSING</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Check status of order ORD-5005')">
+                <div>
+                    <div class="sample-id">ORD-5005 (Mechanical Mouse)</div>
+                    <div class="sample-desc">Status: SHIPPED / IN_TRANSIT</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="chat-box" id="chatBox">
         <div class="message agent-msg">
             Hello! I am <strong>Luintix</strong>, your order resolution assistant. How can I help you with your order today?
         </div>
     </div>
+
     <form class="input-area" id="chatForm">
-        <input type="text" id="userInput" placeholder="Ask about orders, tracking, returns..." required autocomplete="off">
+        <input type="text" id="userInput" placeholder="Ask about orders (e.g. ORD-5001)..." required autocomplete="off">
         <button type="submit">Send</button>
     </form>
 </div>
 
 <script>
     marked.setOptions({ gfm: true, breaks: true });
-    
     let sessionId = localStorage.getItem('luintix_session_id');
+
+    function toggleModal(show) {
+        document.getElementById('sampleModal').style.display = show ? 'flex' : 'none';
+    }
+
+    function selectSample(text) {
+        document.getElementById('userInput').value = text;
+        toggleModal(false);
+        document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+    }
 
     document.getElementById('chatForm').addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -537,9 +536,7 @@ def serve_chat_ui():
                 body: JSON.stringify({ user_input: text, session_id: sessionId })
             });
 
-            if (!res.ok) {
-                throw new Error(`Server returned error status: ${res.status}`);
-            }
+            if (!res.ok) throw new Error(`Server returned error: ${res.status}`);
 
             const data = await res.json();
             
@@ -549,11 +546,6 @@ def serve_chat_ui():
             }
 
             let parsedHtml = marked.parse(data.agent_response || 'No response returned.');
-            
-            // Wrap generated tables into .table-wrapper so only tables get horizontal scrollbars
-            parsedHtml = parsedHtml.replace(/<table>/g, '<div class="table-wrapper"><table>')
-                                   .replace(/<\/table>/g, '</table></div>');
-
             loadingDiv.innerHTML = parsedHtml;
         } catch (err) {
             loadingDiv.textContent = `Error: ${err.message || 'Could not connect to backend server.'}`;
