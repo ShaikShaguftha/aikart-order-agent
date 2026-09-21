@@ -183,7 +183,7 @@ def request_return_tool(
             "status": "APPROVED",
             "message": (
                 f"Return approved for order {order_id}. Refund of"
-                f" ${refund_amount} initiated successfully."
+                f" ${refund_amount} initiated successfully. It will be refunded to your account within 2 to 3 business days."
             ),
         })
     except Exception as e:

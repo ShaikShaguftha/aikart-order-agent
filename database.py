@@ -109,13 +109,13 @@ def init_db() -> None:
 
         # ORD-5002
         cursor.execute(
-            "INSERT INTO orders (id, company_id, customer_id, status, total) VALUES ('ORD-5002', 'COMP-ALPHA', 'CUST-102', 'DELIVERED', 250.0)"
+            "INSERT INTO orders (id, company_id, customer_id, status, total) VALUES ('ORD-5002', 'COMP-ALPHA', 'CUST-102', 'PROCESSING', 250.0)"
         )
         cursor.execute(
             "INSERT INTO order_items (order_id, product_name, quantity, price) VALUES ('ORD-5002', 'Smart Gaming Monitor', 1, 250.0)"
         )
         cursor.execute(
-            "INSERT INTO shipments (order_id, courier, tracking_number, status) VALUES ('ORD-5002', 'UPS', 'TRK-9002', 'DELIVERED')"
+            "INSERT INTO shipments (order_id, courier, tracking_number, status) VALUES ('ORD-5002', 'UPS', 'TRK-9002', 'LABEL_CREATED')"
         )
 
         # ORD-5003
