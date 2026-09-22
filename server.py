@@ -542,10 +542,10 @@ def serve_chat_ui():
                 </div>
             </div>
 
-            <div class="sample-item" onclick="selectSample('Can I get a refund for ORD-5002?')">
+            <div class="sample-item" onclick="selectSample('What is the status of order ORD-5002?')">
                 <div>
                     <div class="sample-id">ORD-5002 (Smart Gaming Monitor)</div>
-                    <div class="sample-desc">Status: DELIVERED | $250.00 (Requires Escalation)</div>
+                    <div class="sample-desc">Status: PROCESSING | $250.00 (Requires Escalation)</div>
                 </div>
             </div>
 

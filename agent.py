@@ -71,12 +71,13 @@ STRICT GUARDRAILS & RULES:
 def process_query(
     user_input: str,
     history_messages: list = None,
-    company_id: str = "COMP-ALPHA",
+    user_id: str = "USER-101",
+    **kwargs,
 ) -> str:
-    """Processes user query with conversation history context and executes tool calls with multi-tenant company isolation."""
+    """Processes user query with conversation history context."""
     try:
         log_agent(
-            f"\n---> [AGENT STARTED | Tenant: {company_id}]: '{user_input}'"
+            f"\n---> [AGENT STARTED | Tenant: {user_id}]: '{user_input}'"
         )
 
         messages = [SystemMessage(content=SYSTEM_PROMPT)]
@@ -106,7 +107,7 @@ def process_query(
                 tool_args = tool_call["args"]
                 tool_call_id = tool_call["id"]
 
-                tool_args["company_id"] = company_id
+                tool_args["user_id"] = user_id
 
                 log_agent(f"[Executing Tool]: {tool_name}({tool_args})")
 
