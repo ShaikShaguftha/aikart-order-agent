@@ -1,0 +1,615 @@
+:root {
+    --primary-blue: #2563eb;
+    --primary-blue-hover: #1d4fd0;
+    --deep-navy: #0f172a;
+    --deep-navy-2: #0a0f1f;
+    --bg-white: #ffffff;
+    --bg-tint: #f8fafc;
+    --bg-tint-2: #eff6ff;
+    --border-color: #e2e8f0;
+    --text-muted: #64748b;
+    --text-soft: #94a3b8;
+
+    --font-heading: 'Red Hat Display', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    --radius-pill: 999px;
+    --radius-card: 18px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+    font-family: var(--font-body);
+    color: var(--deep-navy);
+    background: var(--bg-white);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+}
+
+img, svg { display: block; }
+
+/* ---------- BRAND (used by the footer only now that the nav is removed) ---------- */
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+}
+
+.brand-mark {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
+}
+
+.brand-text {
+    font-family: var(--font-heading);
+    font-weight: 300;
+    font-size: 1.45rem;
+    color: var(--deep-navy);
+}
+
+/* ---------- HERO ---------- */
+/* Full-bleed hero: background layer (video once provided, gradient until
+   then) fills the whole section, a dark veil keeps the overlaid text
+   readable, and the copy sits pinned to the bottom-left - same structure
+   as gorgias.com and aiKart's own homepage hero. */
+.hero {
+    position: relative;
+    /* Full screen - the video fills the complete viewport height. */
+    min-height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 40px 16px 72px;
+}
+
+.hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    /* Placeholder photo (free-to-use, Unsplash) with a navy tint layered
+       over it. Swap the url() below for a different image whenever needed. */
+    background-image:
+        linear-gradient(rgba(9, 14, 33, 0.45), rgba(6, 9, 17, 0.55)),
+        url('assets/hero-bg-placeholder.jpg');
+    background-size: cover;
+    background-position: center 25%;
+    background-repeat: no-repeat;
+    overflow: hidden;
+}
+
+/* Sits on top of .hero-bg's placeholder photo (which stays as the fallback
+   if the video fails to load for any reason). */
+.hero-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Keeps the phone screen (upper half of the source frame) in view,
+       cropping from the bottom (wrist/desk) first rather than center. */
+    object-position: 50% 25%;
+}
+
+.hero-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.hero-glow-1 {
+    width: 480px;
+    height: 480px;
+    top: -180px;
+    left: -120px;
+    background: radial-gradient(circle, rgba(37, 99, 235, 0.55) 0%, rgba(37, 99, 235, 0) 70%);
+}
+
+.hero-glow-2 {
+    width: 520px;
+    height: 520px;
+    bottom: -220px;
+    right: -140px;
+    background: radial-gradient(circle, rgba(37, 99, 235, 0.32) 0%, rgba(37, 99, 235, 0) 70%);
+}
+
+.hero-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(to bottom,
+        rgba(6, 9, 17, 0) 0%,
+        rgba(6, 9, 17, 0.15) 40%,
+        rgba(6, 9, 17, 0.6) 78%,
+        rgba(6, 9, 17, 0.8) 100%);
+    pointer-events: none;
+}
+
+/* Sits inline as a kicker directly above the headline now, not floating
+   separately near the top of the hero. */
+.hero-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.hero-badge-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    flex-shrink: 0;
+    /* Same frosted-glass treatment used everywhere else on the page (nav
+       pill, chat widget) instead of a flat opaque box. */
+    background: rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+}
+
+.hero-badge-icon img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+.hero-badge-label {
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    white-space: nowrap;
+}
+
+.hero-inner {
+    position: relative;
+    z-index: 3;
+    max-width: 1280px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 20px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-end;
+    gap: 40px;
+}
+
+.hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 620px;
+}
+
+.hero-title {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 3rem;
+    line-height: 1.15;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+    margin-bottom: 22px;
+}
+
+.grad-text {
+    background-image: linear-gradient(90deg, #ffffff 0%, var(--primary-blue) 50%, #ffffff 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: grad-sweep 4s linear infinite;
+}
+
+/* Seamless loop: background-size is exactly one tile-period (200%), and the
+   gradient starts/ends on the same color, so panning position by a full
+   200% wraps invisibly. Increasing position-x pans the sweep right to left. */
+@keyframes grad-sweep {
+    from { background-position: 0% 50%; }
+    to   { background-position: 200% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .grad-text { animation: none; background-position: 0% 50%; }
+}
+
+.hero-sub {
+    font-size: 1.08rem;
+    line-height: 1.65;
+    color: #cbd5e1;
+    max-width: 560px;
+    margin-bottom: 36px;
+}
+
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-blue);
+    color: #fff;
+    text-decoration: none;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.88rem;
+    padding: 11px 24px;
+    border-radius: var(--radius-pill);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
+    transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background: var(--primary-blue-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 16px 34px rgba(37, 99, 235, 0.45);
+}
+
+
+
+/* ---------- SECTIONS ---------- */
+.section {
+    padding: 96px 16px;
+    /* Guarantees the left/right gutter stays the same 16px+20px on both
+       sides - nothing inside (e.g. the phone-demo video) can bleed past
+       the right edge and throw the two sides out of balance. */
+    overflow: hidden;
+}
+
+.section-inner {
+    /* Same box model as .hero-inner (max-width + centering + padding), so
+       this text starts at the exact same left edge as the hero copy. */
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 20px;
+    box-sizing: border-box;
+    text-align: left;
+}
+
+.eyebrow {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    white-space: nowrap;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    /* Same moving gradient recipe as .grad-text in the hero: a blue/white
+       sweep, panning right to left, seamless loop. */
+    background-image: linear-gradient(90deg, var(--primary-blue-hover) 0%, #93c5fd 50%, var(--primary-blue-hover) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: grad-sweep 4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .eyebrow { animation: none; background-position: 0% 50%; }
+}
+
+.section-title {
+    font-family: var(--font-heading);
+    font-weight: 500;
+    /* Same size as .hero-title, at every breakpoint (see the media queries
+       below), so this heading reads at the same scale as the hero's. */
+    font-size: 3rem;
+    line-height: 1.15;
+    color: var(--deep-navy);
+    max-width: 640px;
+    margin: 0 0 56px;
+    letter-spacing: -0.01em;
+}
+
+
+/* ---------- PHONE DEMO (hovering 3D phone + cancellation flow) ---------- */
+.demo-split {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.demo-copy {
+    flex: 0.7;
+    min-width: 340px;
+}
+
+.demo-copy .section-title {
+    /* Smaller than the hero-matched base 3rem - this column is now much
+       narrower (the video takes most of the row's width), so 3rem would
+       force "Every order question," onto its own wrapped sub-line instead
+       of the clean two lines the explicit <br> in the markup is meant to
+       produce. */
+    font-size: 2.1rem;
+    line-height: 1.25;
+    margin: 0 0 32px;
+}
+
+.demo-list {
+    list-style: none;
+    margin: 0 0 24px;
+    padding: 0;
+    max-width: 420px;
+    border-top: 1px solid var(--border-color);
+}
+
+.demo-list-item {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.demo-list-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 16px 2px;
+    background: none;
+    border: none;
+    font-family: var(--font-body);
+    font-size: 0.98rem;
+    font-weight: 500;
+    color: var(--deep-navy);
+    text-align: left;
+    cursor: pointer;
+}
+
+.demo-list-plus {
+    color: var(--primary-blue);
+    font-size: 1.3rem;
+    font-weight: 600;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+/* "+" rotates into an "x" when its panel is open. */
+.demo-list-trigger[aria-expanded="true"] .demo-list-plus {
+    transform: rotate(45deg);
+}
+
+.demo-list-panel {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    /* Exact height is set inline by script.js (measured from content), so
+       this animates smoothly regardless of description length instead of
+       being capped at a guessed pixel value. Height slightly outlasts
+       opacity so the fade reads as finishing "during" the collapse/expand
+       rather than racing ahead of it. */
+    transition: max-height 0.4s ease-in-out, opacity 0.3s ease-in-out;
+}
+
+.demo-list-panel p {
+    font-size: 0.86rem;
+    line-height: 1.55;
+    color: var(--text-muted);
+    padding-bottom: 16px;
+    margin: 0;
+}
+
+.demo-visual {
+    flex: 2.2;
+    min-width: 0;
+    /* Capped so the aspect-ratio box below can't grow taller than the text
+       column on wide screens - that mismatch was what created the big
+       empty gap under the accordion list before the CTA band. */
+    max-width: 620px;
+    position: relative;
+    /* Fixed intrinsic height (matches the demo clips' native 1280x720) so
+       the column keeps its size now that both videos are stacked with
+       position:absolute for the cross-fade below. */
+    aspect-ratio: 1280 / 720;
+    padding: 0;
+}
+
+/* Real lifestyle phone-demo video, nudged toward the right edge of its
+   column instead of sitting dead-center. The mask feathers all four edges
+   to transparent so it dissolves into the page background instead of
+   reading as a hard-edged video box.
+
+   Two <video> elements are stacked here (script.js swaps which one is
+   "active") so switching accordion items cross-fades between clips
+   instead of hard-cutting. */
+.phone-video {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 94%;
+    max-width: none;
+    height: auto;
+    opacity: 0;
+    transition: opacity 0.35s ease-in-out;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%),
+        linear-gradient(to right, transparent 0%, #000 10%, #000 90%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%),
+        linear-gradient(to right, transparent 0%, #000 10%, #000 90%, transparent 100%);
+    mask-composite: intersect;
+}
+
+.phone-video.is-active {
+    opacity: 1;
+}
+
+
+/* ---------- CTA BAND ---------- */
+.cta-band {
+    background: radial-gradient(120% 160% at 50% 0%, #14204a 0%, var(--deep-navy-2) 60%, #060911 100%);
+    /* No horizontal padding here - .cta-inner's own 20px padding is the
+       only inset, same as .section-inner, so the text/buttons land on the
+       same left/right edge as the rest of the page's content instead of
+       being pushed in further by this band's own padding. */
+    padding: 40px 0;
+    text-align: left;
+    /* Capped to the same 1280px content width as .section-inner/.cta-inner
+       and centered, so the band's own edges line up with the text column
+       widths above it instead of stretching to the full viewport on wide
+       screens. The 16px side inset still applies below that width. */
+    width: calc(100% - 32px);
+    max-width: 1280px;
+    margin: 0 auto;
+    border-radius: 28px;
+    overflow: hidden;
+}
+
+/* Same box model as .hero-inner/.section-inner (max-width + centering +
+   padding), so this content starts at the same left edge as the rest of
+   the page instead of being centered on its own. */
+.cta-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 56px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 32px;
+}
+
+.cta-copy {
+    max-width: 560px;
+}
+
+.cta-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+
+.cta-inner h2 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.6rem;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+}
+
+.cta-inner p {
+    color: #cbd5e1;
+    font-size: 0.92rem;
+    margin: 0;
+}
+
+.btn-light {
+    background: #ffffff;
+    color: var(--deep-navy);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+}
+
+.btn-light:hover {
+    background: #eff6ff;
+    color: var(--primary-blue-hover);
+}
+
+/* Secondary CTA - transparent with a white border, so it sits quietly next
+   to the solid .btn-light "Book a Demo" button instead of competing with it. */
+.btn-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: #ffffff;
+    text-decoration: none;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.88rem;
+    padding: 11px 24px;
+    border-radius: var(--radius-pill);
+    border: 1.5px solid rgba(255, 255, 255, 0.4);
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.btn-outline:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.7);
+    transform: translateY(-2px);
+}
+
+/* ---------- FOOTER ---------- */
+.footer {
+    background: var(--bg-white);
+    padding: 32px 24px;
+}
+
+.footer-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.brand-footer .brand-mark {
+    width: 38px;
+    height: 38px;
+}
+
+.brand-footer .brand-text {
+    font-size: 1.4rem;
+    /* Footer sits on a white background, unlike the nav's dark hero, so it
+       needs its own (previously missing) color - the base .brand-text white
+       was invisible here. */
+    color: var(--deep-navy);
+    text-shadow: none;
+}
+
+.footer-copy {
+    font-size: 0.84rem;
+    color: var(--text-muted);
+}
+
+/* ---------- SCROLL REVEAL ---------- */
+[data-reveal] {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+[data-reveal].is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 860px) {
+    .hero { padding-top: 32px; padding-bottom: 56px; }
+    .hero-inner { padding: 0 22px; }
+
+    .demo-split { flex-direction: column; gap: 48px; margin-top: 64px; }
+    .demo-copy .section-title { font-size: 2.3rem; }
+    .demo-visual { padding: 0 20px 60px; }
+    .hero-copy { max-width: 100%; }
+
+    .hero-title { font-size: 2.3rem; }
+    .section-title { font-size: 1.7rem; }
+}
+
+@media (max-width: 520px) {
+    .hero { padding-top: 28px; padding-bottom: 48px; }
+    .hero-inner { padding: 0 16px; }
+    .hero-title { font-size: 1.9rem; }
+    .section { padding: 72px 20px; }
+}

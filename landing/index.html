@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Luintix | AI Order Resolution Agent by aiKart</title>
+<meta name="description" content="Luintix is aiKart's autonomous order resolution agent, instant tracking, cancellations, returns and smart human escalation.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Red+Hat+Display:wght@300;500;600;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chat-widget.css">
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+</head>
+<body>
+
+<main id="top">
+    <!-- HERO: real product-demo video background with a dark veil so the
+         overlaid text stays readable, text pinned bottom-left. -->
+    <section class="hero">
+        <div class="hero-bg">
+            <div class="hero-glow hero-glow-1"></div>
+            <div class="hero-glow hero-glow-2"></div>
+            <video class="hero-video" autoplay muted playsinline preload="auto">
+                <source src="assets/hero-demo.mp4" type="video/mp4">
+            </video>
+        </div>
+
+        <div class="hero-veil"></div>
+
+        <div class="hero-inner">
+            <div class="hero-copy">
+                <div class="hero-badge">
+                    <span class="hero-badge-icon">
+                        <img src="assets/logo-mark.png" alt="">
+                    </span>
+                    <span class="hero-badge-label">Meet Luintix</span>
+                </div>
+
+                <h1 class="hero-title">
+                    Resolve orders, instantly.<br>
+                    <span class="grad-text">Powered by AI.</span>
+                </h1>
+
+                <p class="hero-sub">
+                    Answers in seconds, not tickets.
+                </p>
+
+                <a href="book-demo.html" class="btn-primary" id="requestDemoBtn">
+                    Book a Demo
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- HOW LUINTIX WORKS: a single, compact section - capabilities and
+         process are folded into the list on the left, and the phone demo
+         shows one of them (cancellation) actually happening. No separate
+         feature grid / steps blocks to scroll through anymore. -->
+    <section class="section" id="features" data-reveal>
+        <!-- PHONE DEMO: hovering 3D phone with a live-looking two-step
+             cancellation conversation, Pyko-style split layout. -->
+        <div class="section-inner demo-split">
+            <div class="demo-copy">
+                <span class="eyebrow">How Luintix Works</span>
+                <h2 class="section-title">Every order question,<br>handled automatically</h2>
+
+                <ul class="demo-list">
+                    <li class="demo-list-item">
+                        <button type="button" class="demo-list-trigger" aria-expanded="false" aria-controls="demo-panel-1" data-video="assets/tracking-demo.mp4">
+                            <span>Live order tracking, verified instantly</span>
+                            <span class="demo-list-plus" aria-hidden="true">+</span>
+                        </button>
+                        <div class="demo-list-panel" id="demo-panel-1">
+                            <p>Pulls real-time shipment status straight from your order database, so answers are always accurate, never guessed.</p>
+                        </div>
+                    </li>
+                    <li class="demo-list-item">
+                        <button type="button" class="demo-list-trigger" aria-expanded="false" aria-controls="demo-panel-2" data-video="assets/phone-demo.mp4">
+                            <span>Safe, two-step cancellations</span>
+                            <span class="demo-list-plus" aria-hidden="true">+</span>
+                        </button>
+                        <div class="demo-list-panel" id="demo-panel-2">
+                            <p>Checks eligibility, confirms with the customer, then cancels, so nothing gets cancelled by mistake.</p>
+                        </div>
+                    </li>
+                    <li class="demo-list-item">
+                        <button type="button" class="demo-list-trigger" aria-expanded="false" aria-controls="demo-panel-3" data-video="assets/refund-demo.mp4">
+                            <span>Automated returns &amp; refunds</span>
+                            <span class="demo-list-plus" aria-hidden="true">+</span>
+                        </button>
+                        <div class="demo-list-panel" id="demo-panel-3">
+                            <p>Auto-approves eligible refunds within your policy limits, and flags anything bigger for a human to review.</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="demo-visual" data-reveal>
+                <video class="phone-video is-active" id="phoneVideoA" autoplay muted loop playsinline preload="auto">
+                    <source src="assets/phone-demo.mp4" type="video/mp4">
+                </video>
+                <video class="phone-video" id="phoneVideoB" muted loop playsinline preload="auto">
+                    <source src="" type="video/mp4">
+                </video>
+            </div>
+        </div>
+    </section>
+
+    <!-- CLOSING CTA -->
+    <section class="cta-band" data-reveal>
+        <div class="cta-inner">
+            <div class="cta-copy">
+                <h2>Need something more specific?</h2>
+                <p>We also build fully custom agents around your store's exact workflows.</p>
+            </div>
+
+            <div class="cta-buttons">
+                <a href="book-demo.html" class="btn-primary btn-light">
+                    Book a Demo
+                </a>
+                <a href="mailto:hello@aikart.co?subject=Book%20a%20Demo%20-%20Luintix%20Order%20Agent&body=Hi%20aiKart%20team%2C%0A%0AI'd%20like%20to%20book%20a%20demo%20of%20Luintix.%0A%0ACompany%3A%0AName%3A%0AWork%20Email%3A%0A"
+                   class="btn-outline">
+                    Talk to Us
+                </a>
+            </div>
+        </div>
+    </section>
+</main>
+
+<footer class="footer">
+    <div class="footer-inner">
+        <div class="brand brand-footer">
+            <img src="assets/logo-mark.png" alt="Luintix" class="brand-mark">
+            <span class="brand-text">Luintix</span>
+        </div>
+        <p class="footer-copy">&copy; <span id="year"></span> aiKart. All rights reserved.</p>
+    </div>
+</footer>
+
+<script src="script.js"></script>
+<script src="animations.js"></script>
+<script src="chat-widget.js"></script>
+</body>
+</html>

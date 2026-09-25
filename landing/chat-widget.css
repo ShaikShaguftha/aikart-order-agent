@@ -1,0 +1,258 @@
+/* ============ AI CHAT WIDGET ============ */
+/* Positioned entirely by chat-widget.js (left/top in px) so it can be
+   dragged and spring back to its home corner, same physics as aiKart's
+   own floating launcher. */
+#luintix-widget {
+    position: fixed;
+    z-index: 999;
+    width: 72px;
+    height: 72px;
+    left: 0;
+    top: 0;
+}
+
+/* --- Launcher (robot avatar button) --- */
+.lw-launcher {
+    position: absolute;
+    inset: 0;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    cursor: grab;
+    background: transparent;
+    box-shadow: none;
+    transition: transform 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    user-select: none;
+}
+
+.lw-launcher:hover {
+    transform: scale(1.05);
+}
+
+.lw-launcher.dragging {
+    cursor: grabbing;
+    transform: scale(1.06);
+}
+
+.lw-avatar,
+.lw-brand-mark {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.3));
+}
+
+.lw-avatar svg,
+.lw-brand-mark svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    transform-origin: 50% 90%;
+    animation: lw-wave 2.4s ease-in-out infinite;
+}
+
+.lw-brand-mark svg { animation: none; }
+
+@keyframes lw-wave {
+    0%, 60%, 100% { transform: rotate(0deg); }
+    10% { transform: rotate(16deg); }
+    20% { transform: rotate(-10deg); }
+    30% { transform: rotate(16deg); }
+    40% { transform: rotate(-6deg); }
+    50% { transform: rotate(10deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lw-avatar svg { animation: none; }
+}
+
+/* --- Chat panel (anchored around the launcher by chat-widget.js) --- */
+/* Frosted glass card - the exact recipe aiKart's own popup card uses:
+   bg-white/30, blur(24px) saturate(180%), border-white/50, rounded-3xl,
+   and its signature soft purple-tinted shadow. */
+.lw-panel {
+    position: absolute;
+    width: 368px;
+    max-width: calc(100vw - 24px);
+    height: 540px;
+    max-height: calc(100vh - 140px);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 100%);
+    backdrop-filter: blur(40px) saturate(200%);
+    -webkit-backdrop-filter: blur(40px) saturate(200%);
+    border-radius: 24px;
+    box-shadow:
+        0 20px 60px rgba(76, 29, 149, 0.22),
+        0 8px 24px rgba(15, 23, 42, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+#luintix-widget.open .lw-panel {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+/* Brand header - centered logo + name sitting directly on the glass
+   background instead of a separate colored bar, matching the reference
+   widget's centered-logo layout. */
+.lw-brand {
+    padding: 22px 18px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.lw-brand-mark { width: 30px; height: 30px; }
+
+.lw-brand-name {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.92rem;
+    color: var(--deep-navy, #0f172a);
+}
+
+.lw-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: rgba(248, 250, 252, 0.18);
+}
+
+.lw-msg {
+    max-width: 86%;
+    padding: 11px 14px;
+    border-radius: 16px;
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    word-wrap: break-word;
+}
+
+.lw-msg.user {
+    align-self: flex-end;
+    background: rgba(37, 99, 235, 0.75);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-bottom-right-radius: 4px;
+}
+
+.lw-msg.bot {
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    color: var(--deep-navy, #0f172a);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-bottom-left-radius: 4px;
+}
+
+.lw-msg.bot p { margin: 0 0 6px; }
+.lw-msg.bot p:last-child { margin-bottom: 0; }
+.lw-msg.bot ul, .lw-msg.bot ol { margin: 4px 0 4px 18px; padding: 0; }
+.lw-msg.bot table { border-collapse: collapse; font-size: 0.78rem; margin: 6px 0; }
+.lw-msg.bot th, .lw-msg.bot td { border: 1px solid var(--border-color, #e2e8f0); padding: 5px 8px; text-align: left; }
+.lw-msg.bot th { background: #eff6ff; }
+
+.lw-typing { display: inline-flex; gap: 4px; align-items: center; padding: 2px 0; }
+.lw-typing span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-soft, #94a3b8);
+    animation: lw-bounce 1.2s infinite;
+}
+.lw-typing span:nth-child(2) { animation-delay: 0.15s; }
+.lw-typing span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes lw-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.lw-input-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    flex-shrink: 0;
+}
+
+/* Online status dot, sitting inline inside the input pill like the
+   reference widget's "Chat with us" bar. */
+.lw-status-dot {
+    position: absolute;
+    left: 26px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 5px #22c55e;
+    pointer-events: none;
+}
+
+.lw-input-row input {
+    flex: 1;
+    border: 1.5px solid rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 22px;
+    padding: 10px 16px 10px 30px;
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    outline: none;
+    color: var(--deep-navy, #0f172a);
+    min-width: 0;
+}
+
+.lw-input-row input::placeholder { color: rgba(15, 23, 42, 0.55); }
+
+.lw-input-row input:focus { border-color: var(--primary-blue, #2563eb); background: rgba(255, 255, 255, 0.65); }
+
+.lw-send {
+    width: 40px;
+    height: 40px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(37, 99, 235, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+
+.lw-send:hover { background: rgba(29, 79, 208, 0.9); }
+.lw-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 480px) {
+    .lw-panel { width: calc(100vw - 24px); height: calc(100vh - 120px); }
+}

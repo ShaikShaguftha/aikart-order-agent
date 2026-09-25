@@ -1,0 +1,263 @@
+/* ============ BOOK A DEMO PAGE (multi-step) ============ */
+/* Same design tokens as style.css (colors, fonts, radii) - just a simple
+   centered card layout instead of the marketing page's sections. */
+
+.demo-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    /* Dark dimmed backdrop, like this card floating over the rest of the
+       (blurred) page - same modal feel as the reference. */
+    background: radial-gradient(120% 120% at 50% 0%, #1e293b 0%, #0b1220 70%);
+}
+
+.demo-card {
+    position: relative;
+    width: 100%;
+    max-width: 760px;
+    background: var(--bg-white);
+    border-radius: 24px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+    /* Extra top padding clears the logo/Exit, which now sit flush at the
+       card's own corners instead of inset with the rest of the content. */
+    padding: 90px 56px 56px;
+}
+
+/* Flush to the card's top-left corner, not indented by the card's normal
+   content padding. */
+.demo-brand {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+}
+
+.demo-brand .brand-mark { width: 30px; height: 30px; }
+.demo-brand .brand-text { font-size: 1.1rem; }
+
+.demo-card-head {
+    position: absolute;
+    top: 24px;
+    /* Matches the card's own horizontal padding, so Exit's right edge
+       lines up with Next's right edge below instead of sitting further
+       out toward the card's true corner. */
+    right: 56px;
+}
+
+/* Thin progress bar that fills in as the visitor advances through steps. */
+.demo-progress {
+    height: 6px;
+    background: var(--border-color);
+    border-radius: var(--radius-pill);
+    margin: 18px 0 36px;
+}
+
+.demo-progress-bar {
+    height: 100%;
+    width: 25%;
+    background: var(--primary-blue);
+    border-radius: var(--radius-pill);
+    transition: width 0.3s ease;
+}
+
+.demo-exit {
+    flex-shrink: 0;
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--deep-navy);
+    text-decoration: none;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    padding: 9px 22px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.demo-exit:hover { background: var(--bg-tint); border-color: var(--text-soft); }
+
+.demo-title {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.7rem;
+    color: var(--deep-navy);
+    padding: 0;
+    border: none;
+}
+
+/* <legend> renders outside normal flow by default - force it to behave
+   like a plain block heading inside the flex step. */
+legend.demo-title { display: block; width: 100%; }
+
+.demo-form { margin-top: 32px; }
+
+/* Steps: one visible at a time, the rest hidden but still in the DOM (so
+   their values persist across Back/Next). */
+.demo-step {
+    display: none;
+    flex-direction: column;
+    gap: 24px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    min-width: 0;
+}
+
+.demo-step.is-active { display: flex; }
+
+.demo-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.demo-label {
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--deep-navy);
+}
+
+.demo-label em {
+    font-style: normal;
+    color: #ef4444;
+    margin-left: 2px;
+}
+
+.demo-field input {
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    color: var(--deep-navy);
+    background: var(--bg-white);
+    border: 1.5px solid var(--border-color);
+    /* Full pill, same rounded language as the site's buttons and the chat
+       widget's own input bar. */
+    border-radius: var(--radius-pill);
+    padding: 12px 20px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.demo-field input:focus { border-color: var(--primary-blue); }
+.demo-field input::placeholder { color: var(--text-soft); }
+.demo-field input.is-touched { border-color: #ef4444; }
+
+/* Radio options styled as selectable cards, matching the input fields'
+   border/radius language. */
+.demo-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Two-column option grid (platform step) - centered heading/subheading to
+   match, since this step reads as a wider standalone question rather than
+   part of the left-aligned form flow. */
+.demo-options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+[data-step="2"] {
+    align-items: center;
+    text-align: center;
+}
+
+[data-step="2"] .demo-option { text-align: left; }
+
+/* Keep Back/Next spread full-width (Back left, Next right), same as every
+   other step, instead of shrinking to a centered cluster. */
+[data-step="2"] .demo-actions { width: 100%; }
+
+.demo-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 16px;
+    border: 1.5px solid var(--border-color);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.demo-option:hover { border-color: var(--text-soft); }
+
+.demo-option input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary-blue);
+    flex-shrink: 0;
+}
+
+.demo-option span {
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    color: var(--deep-navy);
+}
+
+.demo-option:has(input:checked) {
+    border-color: var(--primary-blue);
+    background: var(--bg-tint-2);
+}
+
+.demo-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
+.demo-actions-end { justify-content: flex-end; }
+
+.demo-actions .btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Final outcome screen - three equal actions, cards for the links and a
+   matching button for opening the chat widget. */
+.demo-outcomes {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.demo-outcome-card {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    font-family: var(--font-body);
+    background: var(--bg-white);
+    border: 1.5px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 18px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.demo-outcome-card:hover {
+    border-color: var(--primary-blue);
+    background: var(--bg-tint-2);
+    transform: translateY(-1px);
+}
+
+.demo-outcome-title {
+    font-size: 0.98rem;
+    font-weight: 600;
+    color: var(--deep-navy);
+}
+
+@media (max-width: 600px) {
+    .demo-options-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+    .demo-card { padding: 24px 20px; }
+    .demo-title { font-size: 1.4rem; }
+}
