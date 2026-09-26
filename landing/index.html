@@ -12,6 +12,7 @@
 
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="chat-widget.css">
+<link rel="stylesheet" href="book-demo.css">
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
@@ -51,9 +52,9 @@
                     Answers in seconds, not tickets.
                 </p>
 
-                <a href="book-demo.html" class="btn-primary" id="requestDemoBtn">
+                <button type="button" class="btn-primary btn-light" id="requestDemoBtn" data-open-book-demo>
                     Book a Demo
-                </a>
+                </button>
             </div>
         </div>
     </section>
@@ -81,7 +82,7 @@
                         </div>
                     </li>
                     <li class="demo-list-item">
-                        <button type="button" class="demo-list-trigger" aria-expanded="false" aria-controls="demo-panel-2" data-video="assets/phone-demo.mp4">
+                        <button type="button" class="demo-list-trigger" aria-expanded="false" aria-controls="demo-panel-2" data-video="assets/2_stepcancellation.mp4">
                             <span>Safe, two-step cancellations</span>
                             <span class="demo-list-plus" aria-hidden="true">+</span>
                         </button>
@@ -103,7 +104,7 @@
 
             <div class="demo-visual" data-reveal>
                 <video class="phone-video is-active" id="phoneVideoA" autoplay muted loop playsinline preload="auto">
-                    <source src="assets/phone-demo.mp4" type="video/mp4">
+                    <source src="assets/default_video_sec2.mp4" type="video/mp4">
                 </video>
                 <video class="phone-video" id="phoneVideoB" muted loop playsinline preload="auto">
                     <source src="" type="video/mp4">
@@ -121,9 +122,9 @@
             </div>
 
             <div class="cta-buttons">
-                <a href="book-demo.html" class="btn-primary btn-light">
+                <button type="button" class="btn-primary btn-light" data-open-book-demo>
                     Book a Demo
-                </a>
+                </button>
                 <a href="mailto:hello@aikart.co?subject=Book%20a%20Demo%20-%20Luintix%20Order%20Agent&body=Hi%20aiKart%20team%2C%0A%0AI'd%20like%20to%20book%20a%20demo%20of%20Luintix.%0A%0ACompany%3A%0AName%3A%0AWork%20Email%3A%0A"
                    class="btn-outline">
                     Talk to Us
@@ -132,6 +133,180 @@
         </div>
     </section>
 </main>
+
+<!-- BOOK A DEMO: in-page modal (no page navigation) - triggered by any
+     [data-open-book-demo] button, see book-demo-modal.js. Step logic lives
+     in book-demo.js, shared with the standalone book-demo.html fallback. -->
+<div class="bdm-overlay" id="bookDemoOverlay">
+    <div class="demo-card">
+        <div class="brand demo-brand">
+            <img src="assets/logo-mark.png" alt="Luintix" class="brand-mark">
+        </div>
+
+        <div class="demo-card-head">
+            <button type="button" class="demo-exit" id="bookDemoCloseBtn">Exit</button>
+        </div>
+
+        <div class="demo-progress" role="progressbar" aria-label="Form progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="20" id="demoProgress">
+            <div class="demo-progress-bar" id="demoProgressBar"></div>
+        </div>
+
+        <form id="demoForm" class="demo-form" novalidate>
+
+            <!-- Step 1 - Contact -->
+            <div class="demo-step is-active" data-step="1">
+                <h1 class="demo-title">Let's get started</h1>
+
+                <label class="demo-field">
+                    <span class="demo-label">Business email <em>*</em></span>
+                    <input type="email" id="fieldEmail" name="email" placeholder="jane@yourstore.com" required>
+                </label>
+
+                <label class="demo-field">
+                    <span class="demo-label">Store URL <em>*</em></span>
+                    <input type="text" id="fieldStoreUrl" name="storeUrl" placeholder="yourstore.com" required>
+                </label>
+
+                <div class="demo-actions demo-actions-end">
+                    <button type="button" class="btn-primary" data-next>Next</button>
+                </div>
+            </div>
+
+            <!-- Step 2 - Platform -->
+            <fieldset class="demo-step" data-step="2">
+                <legend class="demo-title">What's your current ecommerce platform?</legend>
+
+                <div class="demo-options demo-options-grid">
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="Shopify">
+                        <span>Shopify</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="Shopify Plus">
+                        <span>Shopify Plus</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="WooCommerce">
+                        <span>WooCommerce</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="BigCommerce">
+                        <span>BigCommerce</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="Magento/Adobe Commerce">
+                        <span>Magento/Adobe Commerce</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="PrestaShop">
+                        <span>PrestaShop</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="Salesforce Commerce Cloud">
+                        <span>Salesforce Commerce Cloud</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="checkbox" name="platform" value="Other" id="platformOther">
+                        <span>Other</span>
+                    </label>
+                    <div class="demo-other-panel" id="platformOtherPanel">
+                        <input type="text" id="platformOtherText" name="platformOtherText" placeholder="Enter your platform">
+                        <button type="button" class="btn-primary" id="platformOtherAdd">Add</button>
+                    </div>
+                </div>
+
+                <div class="demo-actions">
+                    <button type="button" class="demo-exit" data-back>Back</button>
+                    <button type="button" class="btn-primary" data-next disabled>Next</button>
+                </div>
+            </fieldset>
+
+            <!-- Step 3 - Volume -->
+            <fieldset class="demo-step" data-step="3">
+                <legend class="demo-title">How many orders do you handle per month?</legend>
+
+                <div class="demo-options demo-options-grid">
+                    <label class="demo-option">
+                        <input type="radio" name="volume" value="< 100">
+                        <span>&lt; 100</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="volume" value="100-1,000">
+                        <span>100&ndash;1,000</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="volume" value="1,001-5,000">
+                        <span>1,001&ndash;5,000</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="volume" value="5,001-10,000">
+                        <span>5,001&ndash;10,000</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="volume" value="> 10,000">
+                        <span>&gt; 10,000</span>
+                    </label>
+                </div>
+
+                <div class="demo-actions">
+                    <button type="button" class="demo-exit" data-back>Back</button>
+                    <button type="button" class="btn-primary" data-next disabled>Next</button>
+                </div>
+            </fieldset>
+
+            <!-- Step 4 - Pain point -->
+            <fieldset class="demo-step" data-step="4">
+                <legend class="demo-title">What's your biggest support headache right now?</legend>
+
+                <div class="demo-options">
+                    <label class="demo-option">
+                        <input type="radio" name="painPoint" value="Order tracking">
+                        <span>Order tracking</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="painPoint" value="Cancellations">
+                        <span>Cancellations</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="painPoint" value="Returns & refunds">
+                        <span>Returns &amp; refunds</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="painPoint" value="Late shipment complaints">
+                        <span>Late shipment complaints</span>
+                    </label>
+                    <label class="demo-option">
+                        <input type="radio" name="painPoint" value="All of the above">
+                        <span>All of the above</span>
+                    </label>
+                </div>
+
+                <div class="demo-actions">
+                    <button type="button" class="demo-exit" data-back>Back</button>
+                    <button type="submit" class="btn-primary" id="demoSubmitBtn" disabled>Submit</button>
+                </div>
+            </fieldset>
+
+            <!-- Final screen - Outcome -->
+            <div class="demo-step" data-step="5">
+                <h2 class="demo-title">Thanks! Here's how to explore Luintix</h2>
+
+                <div class="demo-outcomes">
+                    <a href="mailto:hello@aikart.co?subject=Live%20Demo%20Request%20-%20Luintix%20Order%20Agent&body=Hi%20aiKart%20team%2C%0A%0AI'd%20like%20to%20see%20a%20live%20demo%20of%20Luintix.%0A%0ACompany%3A%0AName%3A%0AWork%20Email%3A%0A" class="demo-outcome-card">
+                        <span class="demo-outcome-title">See a live demo</span>
+                    </a>
+                    <a href="mailto:hello@aikart.co?subject=Book%20a%20Call%20-%20Luintix%20Order%20Agent&body=Hi%20aiKart%20team%2C%0A%0AI'd%20like%20to%20book%20a%20call%20to%20discuss%20Luintix.%0A%0ACompany%3A%0AName%3A%0AWork%20Email%3A%0APreferred%20time%3A%0A" class="demo-outcome-card">
+                        <span class="demo-outcome-title">Book a call</span>
+                    </a>
+                    <button type="button" class="demo-outcome-card" id="chatNowBtn">
+                        <span class="demo-outcome-title">Chat with us now</span>
+                    </button>
+                </div>
+            </div>
+
+        </form>
+    </div>
+</div>
 
 <footer class="footer">
     <div class="footer-inner">
@@ -145,6 +320,8 @@
 
 <script src="script.js"></script>
 <script src="animations.js"></script>
+<script src="book-demo.js"></script>
+<script src="book-demo-modal.js"></script>
 <script src="chat-widget.js"></script>
 </body>
 </html>

@@ -20,7 +20,6 @@
     <div class="demo-card">
         <a href="index.html" class="brand demo-brand">
             <img src="assets/logo-mark.png" alt="Luintix" class="brand-mark">
-            <span class="brand-text">Luintix</span>
         </a>
 
         <div class="demo-card-head">
@@ -58,37 +57,41 @@
 
                 <div class="demo-options demo-options-grid">
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="Shopify">
+                        <input type="checkbox" name="platform" value="Shopify">
                         <span>Shopify</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="Shopify Plus">
+                        <input type="checkbox" name="platform" value="Shopify Plus">
                         <span>Shopify Plus</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="WooCommerce">
+                        <input type="checkbox" name="platform" value="WooCommerce">
                         <span>WooCommerce</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="BigCommerce">
+                        <input type="checkbox" name="platform" value="BigCommerce">
                         <span>BigCommerce</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="Magento/Adobe Commerce">
+                        <input type="checkbox" name="platform" value="Magento/Adobe Commerce">
                         <span>Magento/Adobe Commerce</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="PrestaShop">
+                        <input type="checkbox" name="platform" value="PrestaShop">
                         <span>PrestaShop</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="Salesforce Commerce Cloud">
+                        <input type="checkbox" name="platform" value="Salesforce Commerce Cloud">
                         <span>Salesforce Commerce Cloud</span>
                     </label>
                     <label class="demo-option">
-                        <input type="radio" name="platform" value="Other">
+                        <input type="checkbox" name="platform" value="Other" id="platformOther">
                         <span>Other</span>
                     </label>
+                    <div class="demo-other-panel" id="platformOtherPanel">
+                        <input type="text" id="platformOtherText" name="platformOtherText" placeholder="Enter your platform">
+                        <button type="button" class="btn-primary" id="platformOtherAdd">Add</button>
+                    </div>
                 </div>
 
                 <div class="demo-actions">
@@ -101,7 +104,7 @@
             <fieldset class="demo-step" data-step="3">
                 <legend class="demo-title">How many orders do you handle per month?</legend>
 
-                <div class="demo-options">
+                <div class="demo-options demo-options-grid">
                     <label class="demo-option">
                         <input type="radio" name="volume" value="< 100">
                         <span>&lt; 100</span>
@@ -168,10 +171,10 @@
                 <h2 class="demo-title">Thanks! Here's how to explore Luintix</h2>
 
                 <div class="demo-outcomes">
-                    <a href="#" class="demo-outcome-card">
+                    <a href="mailto:hello@aikart.co?subject=Live%20Demo%20Request%20-%20Luintix%20Order%20Agent&body=Hi%20aiKart%20team%2C%0A%0AI'd%20like%20to%20see%20a%20live%20demo%20of%20Luintix.%0A%0ACompany%3A%0AName%3A%0AWork%20Email%3A%0A" class="demo-outcome-card">
                         <span class="demo-outcome-title">See a live demo</span>
                     </a>
-                    <a href="#" class="demo-outcome-card">
+                    <a href="mailto:hello@aikart.co?subject=Book%20a%20Call%20-%20Luintix%20Order%20Agent&body=Hi%20aiKart%20team%2C%0A%0AI'd%20like%20to%20book%20a%20call%20to%20discuss%20Luintix.%0A%0ACompany%3A%0AName%3A%0AWork%20Email%3A%0APreferred%20time%3A%0A" class="demo-outcome-card">
                         <span class="demo-outcome-title">Book a call</span>
                     </a>
                     <button type="button" class="demo-outcome-card" id="chatNowBtn">

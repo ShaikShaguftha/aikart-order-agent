@@ -2,21 +2,57 @@
 /* Same design tokens as style.css (colors, fonts, radii) - just a simple
    centered card layout instead of the marketing page's sections. */
 
-.demo-page {
-    min-height: 100vh;
+/* .demo-page = standalone book-demo.html fallback page.
+   .bdm-overlay = the same card, opened as an in-page modal on index.html
+   (see book-demo-modal.js) - no page navigation. Both share the same
+   backdrop/card styling below. */
+.demo-page,
+.bdm-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 40px 20px;
-    /* Dark dimmed backdrop, like this card floating over the rest of the
-       (blurred) page - same modal feel as the reference. */
-    background: radial-gradient(120% 120% at 50% 0%, #1e293b 0%, #0b1220 70%);
+    position: relative;
+    overflow: hidden;
 }
+
+.demo-page { min-height: 100vh; }
+
+.bdm-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    overflow-y: auto;
+}
+
+.bdm-overlay.is-open { display: flex; }
+
+body.bdm-lock { overflow: hidden; }
+
+/* Blurred, glassy backdrop - navy blended with white rather than a flat
+   solid navy fill, so the card reads as floating over frosted glass. */
+.demo-page::before,
+.bdm-overlay::before {
+    content: '';
+    position: absolute;
+    inset: -20%;
+    z-index: -1;
+    background: radial-gradient(120% 120% at 50% 0%, rgba(255, 255, 255, 0.65) 0%, #3b4a6b 35%, #0b1220 80%);
+    filter: blur(70px);
+}
+
+.demo-page { background: linear-gradient(160deg, rgba(255, 255, 255, 0.5) 0%, rgba(11, 18, 32, 0.85) 60%); }
+.bdm-overlay { background: linear-gradient(160deg, rgba(255, 255, 255, 0.35) 0%, rgba(11, 18, 32, 0.55) 60%); }
 
 .demo-card {
     position: relative;
     width: 100%;
     max-width: 760px;
+    /* Fixed floor so the card doesn't visibly resize step to step - tall
+       enough to fit the platform step's 8-option grid, the tallest of
+       the four. Shorter steps just leave breathing room below. */
+    min-height: 660px;
     background: var(--bg-white);
     border-radius: 24px;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
@@ -33,16 +69,24 @@
     left: 24px;
 }
 
-.demo-brand .brand-mark { width: 30px; height: 30px; }
-.demo-brand .brand-text { font-size: 1.1rem; }
+.demo-brand .brand-mark { width: 48px; height: 48px; }
 
 .demo-card-head {
     position: absolute;
-    top: 24px;
+    /* A bit lower than the logo's own top offset (24px) - the logo is
+       taller now (48px) so this centers Exit against it instead of both
+       just sharing the same top edge. */
+    top: 30px;
     /* Matches the card's own horizontal padding, so Exit's right edge
        lines up with Next's right edge below instead of sitting further
        out toward the card's true corner. */
     right: 56px;
+}
+
+/* Same size as the Back/Next buttons at the bottom, for visual consistency. */
+.demo-card-head .demo-exit {
+    padding: 10px 24px;
+    font-size: 0.88rem;
 }
 
 /* Thin progress bar that fills in as the visitor advances through steps. */
@@ -76,7 +120,7 @@
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.demo-exit:hover { background: var(--bg-tint); border-color: var(--text-soft); }
+.demo-exit:hover { background: #fef2f2; border-color: #ef4444; color: #ef4444; }
 
 .demo-title {
     font-family: var(--font-heading);
@@ -88,8 +132,10 @@
 }
 
 /* <legend> renders outside normal flow by default - force it to behave
-   like a plain block heading inside the flex step. */
-legend.demo-title { display: block; width: 100%; }
+   like a plain block heading inside the flex step, with its own explicit
+   gap below it (rather than relying only on the parent's flex `gap`,
+   which legend doesn't always contribute to consistently). */
+legend.demo-title { display: block; width: 100%; margin-bottom: 20px; }
 
 .demo-form { margin-top: 32px; }
 
@@ -161,6 +207,44 @@ legend.demo-title { display: block; width: 100%; }
     gap: 12px;
 }
 
+/* "Other" platform: a text field + Add button that reveals only while
+   that option is selected, spanning both grid columns. Pure CSS via
+   :has() - no JS needed to show/hide it. */
+.demo-other-panel {
+    display: none;
+    grid-column: 1 / -1;
+    gap: 10px;
+}
+
+.demo-options-grid:has(#platformOther:checked) .demo-other-panel {
+    display: flex;
+}
+
+.demo-other-panel input[type="text"] {
+    flex: 1;
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    color: var(--deep-navy);
+    background: var(--bg-white);
+    border: 1.5px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    padding: 12px 20px;
+    outline: none;
+    min-width: 0;
+    transition: border-color 0.15s ease;
+}
+
+.demo-other-panel input[type="text"]:focus { border-color: var(--primary-blue); }
+.demo-other-panel input[type="text"]::placeholder { color: var(--text-soft); }
+
+.demo-other-panel .btn-primary {
+    flex-shrink: 0;
+    padding: 12px 24px;
+    font-size: 0.88rem;
+}
+
+.demo-other-panel.is-confirmed input[type="text"] { border-color: #16a34a; }
+
 [data-step="2"] {
     align-items: center;
     text-align: center;
@@ -168,24 +252,23 @@ legend.demo-title { display: block; width: 100%; }
 
 [data-step="2"] .demo-option { text-align: left; }
 
-/* Keep Back/Next spread full-width (Back left, Next right), same as every
-   other step, instead of shrinking to a centered cluster. */
-[data-step="2"] .demo-actions { width: 100%; }
-
 .demo-option {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 13px 16px;
+    padding: 13px 20px;
     border: 1.5px solid var(--border-color);
-    border-radius: 12px;
+    /* Full pill, same rounded language as the inputs/buttons - not a
+       soft-corner rectangle. */
+    border-radius: var(--radius-pill);
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .demo-option:hover { border-color: var(--text-soft); }
 
-.demo-option input[type="radio"] {
+.demo-option input[type="radio"],
+.demo-option input[type="checkbox"] {
     width: 18px;
     height: 18px;
     accent-color: var(--primary-blue);
@@ -203,14 +286,29 @@ legend.demo-title { display: block; width: 100%; }
     background: var(--bg-tint-2);
 }
 
+/* Pinned to the card's bottom corners instead of flowing right after the
+   content - that's what actually fixes the awkward dead space under short
+   steps now that the card has a fixed min-height: the buttons use that
+   space instead of leaving it empty in the middle. */
 .demo-actions {
+    position: absolute;
+    left: 56px;
+    right: 56px;
+    bottom: 56px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-top: 4px;
 }
 
 .demo-actions-end { justify-content: flex-end; }
+
+.demo-actions .btn-primary,
+.demo-actions .demo-exit {
+    /* Same size as the Exit button up top - one consistent button scale
+       across the whole form. */
+    padding: 10px 24px;
+    font-size: 0.88rem;
+}
 
 .demo-actions .btn-primary:disabled {
     opacity: 0.45;

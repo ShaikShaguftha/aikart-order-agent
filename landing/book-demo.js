@@ -61,18 +61,34 @@
         return valid;
     }
 
-    // Radio-group steps: keep that step's Next/Submit button disabled
-    // until one option in the group is selected.
+    // Radio/checkbox steps: keep that step's Next/Submit button disabled
+    // until at least one option in the group is selected. Radios can only
+    // ever add a selection, but checkboxes (the platform step) can also
+    // remove the last one, so this re-checks the whole group on every
+    // change rather than just enabling unconditionally.
+    var radioGatedButtons = [];
     steps.forEach(function (step) {
-        var radios = step.querySelectorAll('input[type="radio"]');
-        if (!radios.length) return;
+        var initialInputs = step.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+        if (!initialInputs.length) return;
 
         var advanceBtn = step.querySelector('[data-next], [type="submit"]');
-        radios.forEach(function (radio) {
-            radio.addEventListener('change', function () {
-                if (advanceBtn) advanceBtn.disabled = false;
-            });
+        if (!advanceBtn) return;
+
+        radioGatedButtons.push(advanceBtn);
+
+        // Re-queried live each call (not the static NodeList above) so it
+        // still sees checkboxes added later by the "Other" -> Add flow.
+        function refreshAdvanceState() {
+            var inputs = step.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+            var anyChecked = Array.prototype.some.call(inputs, function (el) { return el.checked; });
+            advanceBtn.disabled = !anyChecked;
+        }
+
+        initialInputs.forEach(function (input) {
+            input.addEventListener('change', refreshAdvanceState);
         });
+
+        step.refreshAdvanceState = refreshAdvanceState;
     });
 
     form.querySelectorAll('[data-next]').forEach(function (btn) {
@@ -91,6 +107,63 @@
         });
     });
 
+    // "Other" platform: reveal a text field + Add button (shown/hidden in
+    // CSS via :has()). Add turns the typed name into a real option box
+    // alongside Shopify/WooCommerce/etc, selects it, and closes the
+    // "Other" panel again (it auto-hides once "Other" itself is no longer
+    // the checked radio in that group).
+    var platformOtherText = document.getElementById('platformOtherText');
+    var platformOtherAdd = document.getElementById('platformOtherAdd');
+    var platformOtherPanel = document.getElementById('platformOtherPanel');
+    var platformOtherRadio = document.getElementById('platformOther');
+
+    if (platformOtherAdd) {
+        platformOtherAdd.addEventListener('click', function () {
+            var value = platformOtherText.value.trim();
+            if (!value) {
+                platformOtherText.focus();
+                return;
+            }
+
+            var otherLabel = platformOtherRadio.closest('.demo-option');
+            var grid = otherLabel.parentElement;
+
+            var newLabel = document.createElement('label');
+            newLabel.className = 'demo-option demo-option-custom';
+
+            var newCheckbox = document.createElement('input');
+            newCheckbox.type = 'checkbox';
+            newCheckbox.name = 'platform';
+            newCheckbox.value = value;
+            newCheckbox.checked = true;
+
+            var newSpan = document.createElement('span');
+            newSpan.textContent = value;
+
+            newLabel.appendChild(newCheckbox);
+            newLabel.appendChild(newSpan);
+            grid.insertBefore(newLabel, otherLabel);
+
+            platformOtherText.value = '';
+            platformOtherPanel.classList.remove('is-confirmed');
+            // "Other" itself is a separate checkbox now, not mutually
+            // exclusive with the new one - uncheck it so its text panel
+            // closes again (driven by the :has() CSS rule).
+            platformOtherRadio.checked = false;
+
+            // Setting .checked programmatically doesn't fire 'change', so
+            // refresh the button state here directly.
+            var step = otherLabel.closest('.demo-step');
+            if (step.refreshAdvanceState) step.refreshAdvanceState();
+        });
+    }
+
+    if (platformOtherText) {
+        platformOtherText.addEventListener('input', function () {
+            platformOtherPanel.classList.remove('is-confirmed');
+        });
+    }
+
     form.addEventListener('submit', function (e) {
         e.preventDefault();
 
@@ -98,7 +171,7 @@
         var answers = {
             email: (data.get('email') || '').trim(),
             storeUrl: (data.get('storeUrl') || '').trim(),
-            platform: data.get('platform') || '',
+            platform: data.getAll('platform'), // multi-select now
             volume: data.get('volume') || '',
             painPoint: data.get('painPoint') || ''
         };
@@ -112,9 +185,31 @@
     var chatNowBtn = document.getElementById('chatNowBtn');
     if (chatNowBtn) {
         chatNowBtn.addEventListener('click', function () {
+            // When this runs inside the index.html modal, its overlay
+            // (z-index 1000) sits above the chat widget (z-index 999), so
+            // the chat panel would open invisibly behind it unless the
+            // modal closes first.
+            var modalCloseBtn = document.getElementById('bookDemoCloseBtn');
+            if (modalCloseBtn) modalCloseBtn.click();
+
             if (window.luintixChat) window.luintixChat.open();
         });
     }
+
+    // Public hook so book-demo-modal.js can start fresh every time the
+    // modal is opened, instead of resuming wherever it was last left.
+    window.luintixBookDemo = {
+        reset: function () {
+            form.reset();
+            form.querySelectorAll('.is-touched').forEach(function (el) {
+                el.classList.remove('is-touched');
+            });
+            if (platformOtherPanel) platformOtherPanel.classList.remove('is-confirmed');
+            form.querySelectorAll('.demo-option-custom').forEach(function (el) { el.remove(); });
+            radioGatedButtons.forEach(function (btn) { btn.disabled = true; });
+            showStep(0);
+        }
+    };
 
     showStep(0);
 })();

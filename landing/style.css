@@ -324,12 +324,16 @@ img, svg { display: block; }
 .demo-split {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 56px;
 }
 
 .demo-copy {
-    flex: 0.7;
+    /* Don't grow past the text's own natural width (the list itself caps
+       at 420px below) - letting this column stretch was what pushed the
+       video far away from the description. */
+    flex: 0 1 420px;
     min-width: 340px;
+    max-width: 420px;
 }
 
 .demo-copy .section-title {

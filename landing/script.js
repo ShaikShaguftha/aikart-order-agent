@@ -37,6 +37,7 @@ function openDemoPanel(item) {
 /* ---------- Visual panel: cross-fade between two stacked videos ---------- */
 
 const phoneVideos = [document.getElementById('phoneVideoA'), document.getElementById('phoneVideoB')];
+const DEFAULT_DEMO_VIDEO = 'assets/default_video_sec2.mp4';
 let activeVideoIndex = 0;
 let videoSwapToken = 0;
 
@@ -109,7 +110,12 @@ demoListTriggers.forEach((trigger) => {
             }
         });
 
-        if (wasOpen) return; // it was the open one - just closed it, nothing else to do
+        if (wasOpen) {
+            // Closed without opening a different one - fall back to the
+            // section's default video instead of staying on this item's.
+            swapDemoVideo(DEFAULT_DEMO_VIDEO);
+            return;
+        }
 
         openTimer = setTimeout(() => {
             openDemoPanel(item);
