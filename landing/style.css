@@ -12,6 +12,9 @@
 
     --font-heading: 'Red Hat Display', sans-serif;
     --font-body: 'Inter', sans-serif;
+    /* The "Luintix" wordmark specifically - everywhere it appears
+       (header/footer, the Book a Demo form, the chat widget). */
+    --font-logo: 'Plus Jakarta Sans', sans-serif;
 
     --radius-pill: 999px;
     --radius-card: 18px;
@@ -19,7 +22,15 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; }
+html {
+    scroll-behavior: smooth;
+    /* Hides the scrollbar visually only - scrolling itself still works
+       fully via wheel/touch/keyboard. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar { display: none; }
 
 body {
     font-family: var(--font-body);
@@ -48,10 +59,19 @@ img, svg { display: block; }
 }
 
 .brand-text {
-    font-family: var(--font-heading);
-    font-weight: 300;
-    font-size: 1.45rem;
+    font-family: var(--font-logo);
+    font-weight: 600;
+    /* A whole-pixel size (23.2px from 1.45rem rounds up) - straight strokes
+       like the L's land exactly on the pixel grid instead of getting
+       split across two, which is what reads as jagged on that letter
+       specifically while the rounder letters look fine. */
+    font-size: 23px;
     color: var(--deep-navy);
+    /* Smooths out the letterforms' edges instead of the browser's default
+       (slightly harsher) subpixel rendering. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 }
 
 /* ---------- HERO ---------- */
@@ -183,7 +203,11 @@ img, svg { display: block; }
     max-width: 1280px;
     width: 100%;
     margin: 0 auto;
-    padding: 0 20px;
+    /* No extra side padding here (unlike .section-inner) - .hero already
+       adds its own 16px via .hero's padding, and the next section's card
+       edge sits at that same 16px, so this keeps the two flush instead of
+       the text reading 20px further right than the card below it. */
+    padding: 0;
     box-sizing: border-box;
     display: flex;
     align-items: flex-end;
@@ -219,6 +243,15 @@ img, svg { display: block; }
     animation: grad-sweep 4s linear infinite;
 }
 
+/* Replaces the literal "AI" text - sized/aligned to sit inline with the
+   surrounding heading text instead of the gradient-swept word. */
+.hero-ai-logo {
+    display: inline-block;
+    height: 0.95em;
+    width: auto;
+    vertical-align: -0.12em;
+}
+
 /* Seamless loop: background-size is exactly one tile-period (200%), and the
    gradient starts/ends on the same color, so panning position by a full
    200% wraps invisibly. Increasing position-x pans the sweep right to left. */
@@ -231,12 +264,39 @@ img, svg { display: block; }
     .grad-text { animation: none; background-position: 0% 50%; }
 }
 
-.hero-sub {
-    font-size: 1.08rem;
-    line-height: 1.65;
-    color: #cbd5e1;
-    max-width: 560px;
+.hero-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
     margin-bottom: 36px;
+}
+
+/* Same frosted-glass recipe as the chat widget panel and the demo-list
+   items elsewhere on this page - the aiKart reference's capsules use this
+   look too. */
+.hero-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    color: #f1f5f9;
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.hero-pill svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #93c5fd;
 }
 
 .btn-primary {
@@ -321,19 +381,29 @@ img, svg { display: block; }
 
 
 /* ---------- PHONE DEMO (hovering 3D phone + cancellation flow) ---------- */
+/* Video fills this entire card as a background layer (see .demo-visual
+   below); the heading/list sit on top of it via z-index. No dark veil -
+   the actual clips/images here are light, so dark text reads fine
+   directly on them without one. */
 .demo-split {
-    display: flex;
-    align-items: center;
-    gap: 56px;
+    position: relative;
+    display: block;
+    border-radius: 32px;
+    overflow: hidden;
+    padding: 60px;
+    /* A hard height, not a floor - with min-height, the card recalculates
+       its size on every frame of a panel's open/close animation (the panel
+       is mid-way between 0 and full height for ~0.5s), so it visibly
+       grows/shrinks in real time while switching points. A fixed height
+       can't do that - it never changes, so there's nothing to see move. */
+    height: 660px;
+    box-sizing: border-box;
 }
 
 .demo-copy {
-    /* Don't grow past the text's own natural width (the list itself caps
-       at 420px below) - letting this column stretch was what pushed the
-       video far away from the description. */
-    flex: 0 1 420px;
-    min-width: 340px;
-    max-width: 420px;
+    position: relative;
+    z-index: 2;
+    max-width: 460px;
 }
 
 .demo-copy .section-title {
@@ -345,6 +415,7 @@ img, svg { display: block; }
     font-size: 2.1rem;
     line-height: 1.25;
     margin: 0 0 32px;
+    color: var(--deep-navy);
 }
 
 .demo-list {
@@ -352,17 +423,40 @@ img, svg { display: block; }
     margin: 0 0 24px;
     padding: 0;
     max-width: 420px;
-    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
+/* Every item is its own glass card now (not just the open one) - solid
+   black text throughout instead of flipping between white/navy depending
+   on state. */
 .demo-list-item {
-    border-bottom: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    /* Closed: full pill, same curve language as the site's own buttons.
+       Open: a regular box radius, applied instantly (not animated) - the
+       clamp-vs-height interaction while it animated read as a glitchy
+       shape mid-transition. */
+    border-radius: var(--radius-pill);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    padding: 0 18px;
+    transition: background 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+        border-color 0.3s ease;
+}
+
+.demo-list-item.is-open {
+    background: rgba(255, 255, 255, 0.42);
+    border-radius: 20px;
 }
 
 .demo-list-trigger {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
+    gap: 14px;
     width: 100%;
     padding: 16px 2px;
     background: none;
@@ -370,18 +464,37 @@ img, svg { display: block; }
     font-family: var(--font-body);
     font-size: 0.98rem;
     font-weight: 500;
-    color: var(--deep-navy);
+    color: #000000;
     text-align: left;
     cursor: pointer;
 }
 
+.demo-list-trigger > span:not(.demo-list-plus) {
+    /* Text comes first in the markup (for a11y/reading order) but the "+"
+       badge should read as being in front of it, on the left. */
+    order: 2;
+}
+
 .demo-list-plus {
-    color: var(--primary-blue);
-    font-size: 1.3rem;
-    font-weight: 600;
-    line-height: 1;
+    order: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1.5px solid rgba(0, 0, 0, 0.25);
+    border-radius: 50%;
+    color: #000000;
+    font-size: 1.1rem;
+    font-weight: 500;
+    line-height: 28px;
     flex-shrink: 0;
-    transition: transform 0.2s ease;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s ease, color 0.15s ease;
+}
+
+.demo-list-trigger:hover .demo-list-plus {
+    border-color: var(--primary-blue);
+    color: var(--primary-blue);
 }
 
 /* "+" rotates into an "x" when its panel is open. */
@@ -389,68 +502,100 @@ img, svg { display: block; }
     transform: rotate(45deg);
 }
 
+/* Opens inline directly below the clicked item, pushing the rest of the
+   list down - matches apple.com's own MacBook feature-list behavior
+   (confirmed against a recording of the real site), not a floating
+   side popover. Height is set inline by script.js (measured from the
+   content) so the reveal stays smooth regardless of description length. */
 .demo-list-panel {
     max-height: 0;
     overflow: hidden;
     opacity: 0;
-    /* Exact height is set inline by script.js (measured from content), so
-       this animates smoothly regardless of description length instead of
-       being capped at a guessed pixel value. Height slightly outlasts
-       opacity so the fade reads as finishing "during" the collapse/expand
-       rather than racing ahead of it. */
-    transition: max-height 0.4s ease-in-out, opacity 0.3s ease-in-out;
+    margin-top: 0;
+    /* Background/radius now live on .demo-list-item.is-open so the
+       trigger row and this panel read as one merged card, not two. */
+    /* Apple's own signature ease-out curve - decelerates smoothly into
+       place instead of a generic linear ease-in-out. */
+    transition: max-height 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+        opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+        margin-top 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.demo-list-item.is-open .demo-list-panel {
+    opacity: 1;
+    margin-top: -6px;
 }
 
 .demo-list-panel p {
     font-size: 0.86rem;
     line-height: 1.55;
-    color: var(--text-muted);
-    padding-bottom: 16px;
+    color: #000000;
+    /* Left padding lines this up with the heading text, which now starts
+       after the "+" badge (28px) and its gap (14px), not at the row's
+       own left edge. */
+    padding: 0 2px 18px 44px;
     margin: 0;
 }
 
+/* Fills the entire card as a background layer now, instead of sitting in
+   its own side column - the heading/list overlay on top (z-index 2 above,
+   this sits at 0, the readability veil is 1). */
 .demo-visual {
-    flex: 2.2;
-    min-width: 0;
-    /* Capped so the aspect-ratio box below can't grow taller than the text
-       column on wide screens - that mismatch was what created the big
-       empty gap under the accordion list before the CTA band. */
-    max-width: 620px;
-    position: relative;
-    /* Fixed intrinsic height (matches the demo clips' native 1280x720) so
-       the column keeps its size now that both videos are stacked with
-       position:absolute for the cross-fade below. */
-    aspect-ratio: 1280 / 720;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
     padding: 0;
 }
 
-/* Real lifestyle phone-demo video, nudged toward the right edge of its
-   column instead of sitting dead-center. The mask feathers all four edges
-   to transparent so it dissolves into the page background instead of
-   reading as a hard-edged video box.
-
-   Two <video> elements are stacked here (script.js swaps which one is
+/* Two <video> elements are stacked here (script.js swaps which one is
    "active") so switching accordion items cross-fades between clips
-   instead of hard-cutting. */
+   instead of hard-cutting. Full-bleed cover now, not a small floating
+   phone mockup. */
 .phone-video {
     position: absolute;
-    top: 0;
-    right: 0;
-    width: 94%;
-    max-width: none;
-    height: auto;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     opacity: 0;
-    transition: opacity 0.35s ease-in-out;
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%),
-        linear-gradient(to right, transparent 0%, #000 10%, #000 90%, transparent 100%);
-    -webkit-mask-composite: source-in;
-    mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 88%, transparent 100%),
-        linear-gradient(to right, transparent 0%, #000 10%, #000 90%, transparent 100%);
-    mask-composite: intersect;
+    /* Per-asset zoom/anchor (see the customer-support override below) -
+       most clips are already framed at a similar scale so this stays at
+       the identity defaults for them. */
+    --pv-scale: 1;
+    --pv-origin: 50% 50%;
+    object-position: var(--pv-origin);
+    transform-origin: var(--pv-origin);
+    /* No slide - just a straight cross-fade in place. A translateX here
+       (tried earlier) meant the clip was still visibly sliding into
+       position for part of the transition, which read as the same kind
+       of "movement" the fixed-height fix above was meant to get rid of. */
+    transform: scale(var(--pv-scale));
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .phone-video.is-active {
     opacity: 1;
+    transform: scale(var(--pv-scale));
+}
+
+/* The office photo is a much wider shot than every other clip/image here -
+   the people in it read noticeably smaller/farther back than the robot
+   (cancellation video) or the woman (refund.png), which is what made this
+   one item feel like a jump when switching points. A mild zoom anchored on
+   the support agents (right side) brings them closer to the same visual
+   scale as the rest, without needing to touch the card itself. */
+img.phone-video[src$="customer-support.png"] {
+    --pv-scale: 1.15;
+    --pv-origin: 72% 42%;
+}
+
+/* This photo is portrait-ish (3:2) next to the card's much wider frame, so
+   cover has to crop it vertically to fill the box - by default split evenly
+   top/bottom, which was cutting into the top of her head. Biasing toward
+   the top keeps her head fully in frame and takes the extra crop out of
+   the bottom (package/jeans) instead, which has room to spare. */
+img.phone-video[src$="refund.png"] {
+    --pv-origin: 50% 12%;
 }
 
 
@@ -522,8 +667,10 @@ img, svg { display: block; }
 }
 
 .btn-light:hover {
-    background: #eff6ff;
-    color: var(--primary-blue-hover);
+    background: #f1f1f1;
+    /* Overrides .btn-primary:hover's blue glow - this button is white, not
+       blue, so it keeps its own neutral shadow on hover instead. */
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
 }
 
 /* Secondary CTA - transparent with a white border, so it sits quietly next
@@ -602,7 +749,7 @@ img, svg { display: block; }
     .hero { padding-top: 32px; padding-bottom: 56px; }
     .hero-inner { padding: 0 22px; }
 
-    .demo-split { flex-direction: column; gap: 48px; margin-top: 64px; }
+    .demo-split { flex-direction: column; gap: 48px; margin-top: 64px; padding: 32px 24px; border-radius: 24px; }
     .demo-copy .section-title { font-size: 2.3rem; }
     .demo-visual { padding: 0 20px 60px; }
     .hero-copy { max-width: 100%; }

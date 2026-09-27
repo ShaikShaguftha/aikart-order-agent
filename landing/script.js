@@ -6,10 +6,10 @@ document.getElementById('year').textContent = new Date().getFullYear();
 // video to that item's own clip (data-video on the trigger button).
 const demoListTriggers = document.querySelectorAll('.demo-list-trigger');
 
-/* ---------- Text panel: measured-height expand/collapse ---------- */
+/* ---------- Text panel: inline expand, pushes the list down ---------- */
 // max-height is set inline to the panel's real content height (not a
 // guessed cap) so the transition stays smooth regardless of how long a
-// given description is.
+// given description is - matches apple.com's own accordion behavior.
 
 const OPEN_DELAY = 100; // ms - new panel starts opening slightly after the old one begins closing
 let openTimer = null;
@@ -34,30 +34,62 @@ function openDemoPanel(item) {
     panel.style.opacity = '1';
 }
 
-/* ---------- Visual panel: cross-fade between two stacked videos ---------- */
+/* ---------- Visual panel: cross-fade between videos, or a static image ---------- */
 
 const phoneVideos = [document.getElementById('phoneVideoA'), document.getElementById('phoneVideoB')];
+const phoneImage = document.getElementById('phoneImage');
 const DEFAULT_DEMO_VIDEO = 'assets/default_video_sec2.mp4';
 let activeVideoIndex = 0;
 let videoSwapToken = 0;
 
-function swapDemoVideo(src) {
+// Some items show a static image instead of a video (e.g. returns &
+// refunds) - fades it in and pauses whichever video was showing, without
+// touching the two-video ping-pong system otherwise.
+function showDemoImage(src) {
+    if (!src) return;
+    if (phoneImage.classList.contains('is-active') && phoneImage.getAttribute('src') === src) return;
+
+    const token = ++videoSwapToken; // also invalidated by a subsequent video swap
+    phoneImage.setAttribute('src', src);
+    phoneImage.classList.add('is-active');
+
+    const outgoing = phoneVideos[activeVideoIndex];
+    outgoing.classList.remove('is-active');
+    outgoing.addEventListener('transitionend', function onFadeOut(e) {
+        if (e.propertyName !== 'opacity') return;
+        outgoing.removeEventListener('transitionend', onFadeOut);
+        if (token !== videoSwapToken) return;
+        outgoing.pause();
+        outgoing.currentTime = 0;
+    });
+}
+
+function swapDemoVideo(src, loop = true) {
     if (!src) return;
 
     const outgoing = phoneVideos[activeVideoIndex];
     const incoming = phoneVideos[1 - activeVideoIndex];
     const outgoingSrc = outgoing.querySelector('source').getAttribute('src');
-    if (outgoingSrc === src) return; // already showing this clip
+    const imageWasShowing = phoneImage.classList.contains('is-active');
+    if (!imageWasShowing && outgoingSrc === src) return; // already showing this clip
 
     const token = ++videoSwapToken; // invalidates any in-flight swap if clicked again
 
     incoming.classList.remove('is-active');
     incoming.pause();
+    incoming.loop = loop; // each clip sets this itself - it doesn't carry over from whatever played here before
     incoming.querySelector('source').setAttribute('src', src);
     incoming.load();
 
     function crossfade() {
         if (token !== videoSwapToken) return; // a newer click superseded this swap
+
+        // Started here (not earlier) so the image's fade-out and the new
+        // video's fade-in launch on the exact same frame - if the image
+        // faded out first while the video was still loading, there'd be
+        // a blank gap between "photo gone" and "video visible" instead of
+        // one continuous dissolve between the two.
+        phoneImage.classList.remove('is-active');
 
         activeVideoIndex = 1 - activeVideoIndex;
         incoming.classList.add('is-active');
@@ -122,6 +154,11 @@ demoListTriggers.forEach((trigger) => {
             openTimer = null;
         }, OPEN_DELAY);
 
-        swapDemoVideo(trigger.getAttribute('data-video'));
+        const imageSrc = trigger.getAttribute('data-image');
+        if (imageSrc) {
+            showDemoImage(imageSrc);
+        } else {
+            swapDemoVideo(trigger.getAttribute('data-video'), !trigger.hasAttribute('data-no-loop'));
+        }
     });
 });

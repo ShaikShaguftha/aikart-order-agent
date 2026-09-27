@@ -121,7 +121,7 @@
 .lw-brand-mark { width: 30px; height: 30px; }
 
 .lw-brand-name {
-    font-family: var(--font-heading);
+    font-family: var(--font-logo, 'Plus Jakarta Sans', sans-serif);
     font-weight: 700;
     font-size: 0.92rem;
     color: var(--deep-navy, #0f172a);
