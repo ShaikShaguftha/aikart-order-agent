@@ -4,6 +4,17 @@ from typing import Any, Dict, List, Optional
 
 DB_FILE = "orders.db"
 
+DEFAULT_TENANTS = [
+    ("COMP-ALPHA", "Alpha Logistics", "LOCAL_DB"),
+    ("COMP-SHOPIFY", "Shopify Merchant Store", "SHOPIFY"),
+    ("COMP-WOOCOMMERCE", "WooCommerce Store", "WOOCOMMERCE"),
+    ("COMP-ZOHO", "Zoho CRM Tenant", "ZOHO_CRM"),
+    ("COMP-SHADOWFAX", "Shadowfax Logistics", "SHADOWFAX"),
+    ("COMP-HUBSPOT", "HubSpot CRM Tenant", "HUBSPOT"),
+    ("COMP-SALESFORCE", "Salesforce CRM Tenant", "SALESFORCE"),
+    ("COMP-RAZORPAY", "Razorpay Payments Tenant", "RAZORPAY"),
+]
+
 
 def get_db_connection() -> sqlite3.Connection:
     """Creates and returns a connection to the SQLite database with dictionary access and FKs enabled."""
@@ -86,6 +97,207 @@ def init_db() -> None:
         )
     """)
 
+    # 7. Action Audit Logs Table for Safe Action Framework
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS action_audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            company_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT,
+            refund_issued INTEGER NOT NULL DEFAULT 0,
+            details_json TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 8. Company Integrations Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS company_integrations (
+            company_id TEXT PRIMARY KEY,
+            provider_type TEXT NOT NULL,
+            shop_domain TEXT,
+            access_token TEXT,
+            api_version TEXT DEFAULT '2024-04',
+            consumer_key TEXT,
+            consumer_secret TEXT,
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 9. Support tickets (provider-neutral human escalations)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS support_tickets (
+            ticket_id TEXT PRIMARY KEY,
+            company_id TEXT NOT NULL,
+            order_id TEXT,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            source TEXT NOT NULL DEFAULT 'AGENT',
+            session_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 10. Return requests recorded by Luintix for providers without a native returns API
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS return_requests (
+            return_id TEXT PRIMARY KEY,
+            company_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            requested_amount REAL NOT NULL,
+            reason TEXT,
+            status TEXT NOT NULL,
+            ticket_id TEXT,
+            session_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 11. Inbound provider webhook deliveries (deduplicated per tenant)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            delivery_id TEXT,
+            topic TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            resource_id TEXT,
+            order_number TEXT,
+            status TEXT,
+            refund_total REAL,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (company_id, provider, delivery_id)
+        )
+    """)
+
+    # 12. Helpdesk integrations (e.g. Freshdesk). Separate from company_integrations so a
+    # tenant can use a store provider AND a helpdesk; credentials are stored encrypted.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS helpdesk_integrations (
+            company_id TEXT PRIMARY KEY,
+            provider_type TEXT NOT NULL,
+            domain TEXT,
+            api_key TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 13. Shipping/tracking integrations (e.g. Shippo). Separate from store and helpdesk so a
+    # tenant can combine all three. Token and webhook secret are stored encrypted.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shipping_integrations (
+            company_id TEXT PRIMARY KEY,
+            provider_type TEXT NOT NULL,
+            environment TEXT NOT NULL DEFAULT 'test',
+            api_token TEXT,
+            webhook_secret TEXT,
+            webhook_auth_mode TEXT NOT NULL DEFAULT 'hmac',
+            allow_tracking_registration INTEGER NOT NULL DEFAULT 0,
+            credential_status TEXT NOT NULL DEFAULT 'ACTIVE',
+            last_verified_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 14. Tracking registrations: the record is claimed BEFORE calling the provider so a
+    # tracking number is never registered twice for the same merchant (Shippo webhooks
+    # are not idempotent).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shipment_tracking_registrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            environment TEXT NOT NULL,
+            carrier_slug TEXT NOT NULL,
+            tracking_number TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error_code TEXT,
+            order_reference TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (company_id, provider, environment, carrier_slug, tracking_number)
+        )
+    """)
+
+    # 15. Raw inbound tracking webhook events (deduplicated; kept for replay/audit).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tracking_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            event_key TEXT NOT NULL,
+            carrier_slug TEXT,
+            tracking_number TEXT,
+            raw_payload TEXT NOT NULL,
+            processing_status TEXT NOT NULL DEFAULT 'RECEIVED',
+            processing_error TEXT,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            UNIQUE (company_id, provider, event_key)
+        )
+    """)
+
+    # 16. Latest normalized tracking state per shipment (the shipment timeline head).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shipment_tracking_state (
+            company_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            carrier_slug TEXT NOT NULL,
+            tracking_number TEXT NOT NULL,
+            status TEXT NOT NULL,
+            substatus TEXT,
+            action_required INTEGER NOT NULL DEFAULT 0,
+            estimated_delivery TEXT,
+            current_location TEXT,
+            source_updated_at TEXT,
+            last_event_id INTEGER,
+            alert TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (company_id, provider, carrier_slug, tracking_number)
+        )
+    """)
+
+    # 17. Direct carrier integrations (e.g. Delhivery). Keyed by tenant AND provider so a tenant
+    # can combine an aggregator (Shippo, shipping_integrations) with direct carriers.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS carrier_integrations (
+            company_id TEXT NOT NULL,
+            provider_type TEXT NOT NULL,
+            environment TEXT NOT NULL DEFAULT 'production',
+            base_url TEXT,
+            api_token TEXT,
+            auth_header TEXT,
+            auth_scheme TEXT,
+            credential_status TEXT NOT NULL DEFAULT 'ACTIVE',
+            last_verified_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (company_id, provider_type),
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Schema migration check for existing DB files
+    try:
+        cursor.execute("ALTER TABLE company_integrations ADD COLUMN webhook_secret TEXT;")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE company_integrations ADD COLUMN consumer_key TEXT;")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE company_integrations ADD COLUMN consumer_secret TEXT;")
+    except Exception:
+        pass
+
     # Seed Sample Data if empty
     cursor.execute("SELECT COUNT(*) FROM companies")
     if cursor.fetchone()[0] == 0:
@@ -95,6 +307,40 @@ def init_db() -> None:
         cursor.execute(
             "INSERT INTO company_rules (company_id, max_auto_refund_amount, return_window_days) VALUES ('COMP-ALPHA', 100.0, 30)"
         )
+        cursor.execute(
+            "INSERT INTO company_integrations (company_id, provider_type) VALUES ('COMP-ALPHA', 'LOCAL_DB')"
+        )
+
+        cursor.execute(
+            "INSERT INTO companies (id, name, tier) VALUES ('COMP-SHOPIFY', 'Shopify Merchant Store', 'ENTERPRISE')"
+        )
+        cursor.execute(
+            "INSERT INTO company_rules (company_id, max_auto_refund_amount, return_window_days) VALUES ('COMP-SHOPIFY', 100.0, 30)"
+        )
+        cursor.execute(
+            "INSERT INTO company_integrations (company_id, provider_type) VALUES ('COMP-SHOPIFY', 'SHOPIFY')"
+        )
+
+        cursor.execute(
+            "INSERT INTO companies (id, name, tier) VALUES ('COMP-WOOCOMMERCE', 'WooCommerce Store', 'ENTERPRISE')"
+        )
+        cursor.execute(
+            "INSERT INTO company_rules (company_id, max_auto_refund_amount, return_window_days) VALUES ('COMP-WOOCOMMERCE', 100.0, 30)"
+        )
+        cursor.execute(
+            "INSERT INTO company_integrations (company_id, provider_type) VALUES ('COMP-WOOCOMMERCE', 'WOOCOMMERCE')"
+        )
+
+        cursor.execute(
+            "INSERT INTO companies (id, name, tier) VALUES ('COMP-SHADOWFAX', 'Shadowfax Logistics', 'ENTERPRISE')"
+        )
+        cursor.execute(
+            "INSERT INTO company_rules (company_id, max_auto_refund_amount, return_window_days) VALUES ('COMP-SHADOWFAX', 100.0, 30)"
+        )
+        cursor.execute(
+            "INSERT INTO carrier_integrations (company_id, provider_type) VALUES ('COMP-SHADOWFAX', 'SHADOWFAX')"
+        )
+
 
         # ORD-5001
         cursor.execute(
@@ -151,6 +397,24 @@ def init_db() -> None:
             "INSERT INTO shipments (order_id, courier, tracking_number, status) VALUES ('ORD-5005', 'UPS', 'TRK-9005', 'IN_TRANSIT')"
         )
 
+    # Ensure every known tenant has a company + integration row, including DBs
+    # created before company_integrations existed. Existing rows are never overwritten.
+    for company_id, name, provider_type in DEFAULT_TENANTS:
+        cursor.execute(
+            "INSERT OR IGNORE INTO companies (id, name, tier) VALUES (?, ?, 'ENTERPRISE')",
+            (company_id, name),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO company_integrations (company_id, provider_type) VALUES (?, ?)",
+            (company_id, provider_type),
+        )
+        cursor.execute("SELECT 1 FROM company_rules WHERE company_id = ?", (company_id,))
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO company_rules (company_id, max_auto_refund_amount, return_window_days) VALUES (?, 100.0, 30)",
+                (company_id,),
+            )
+
     conn.commit()
     conn.close()
 
@@ -158,23 +422,25 @@ def init_db() -> None:
 def query_db(query: str, args: tuple = (), one: bool = False) -> Any:
     """Executes a SQL query and returns dictionary formatted results."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(query, args)
-    r = cursor.fetchall()
-    conn.close()
+    try:
+        r = conn.execute(query, args).fetchall()
+    finally:
+        conn.close()
     results = [dict(row) for row in r]
     return (results[0] if results else None) if one else results
 
 
 def execute_db(query: str, args: tuple = ()) -> int:
     """Executes an INSERT, UPDATE, or DELETE query and returns lastrowid."""
+    # Always close: a failed statement (e.g. IntegrityError) must not leave the
+    # connection holding the database write lock.
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(query, args)
-    conn.commit()
-    last_id = cursor.lastrowid
-    conn.close()
-    return last_id
+    try:
+        cursor = conn.execute(query, args)
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
 
 
 def get_order_details(

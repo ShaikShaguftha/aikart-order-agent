@@ -5,12 +5,16 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+# Ensure environment variables are loaded immediately at server startup
+import env_config
+
 from agent import process_query
 from database import execute_db, init_db, query_db
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
+
 
 # Configure Uvicorn logger
 logger = logging.getLogger("uvicorn.error")
@@ -25,7 +29,14 @@ def log_terminal(msg: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initializes the SQLite database and executes the proactive background scan on startup."""
+    for line in env_config.provider_env_status():
+        log_terminal(f"[STARTUP CONFIG]: {line}")
+
     init_db()
+
+    from integrations.gateway import gateway
+    for line in gateway.describe_tenants():
+        log_terminal(f"[STARTUP TENANTS]: {line}")
 
     query = """
         SELECT o.id, o.customer_id, s.courier 
@@ -51,6 +62,10 @@ app = FastAPI(
 
 sessions_memory: Dict[str, List[BaseMessage]] = {}
 
+# Customer-provided identity (email/phone) remembered per (session, tenant) once it resolved
+# a customer. This is NOT authentication.
+sessions_identity: Dict[tuple, dict] = {}
+
 
 class ChatRequest(BaseModel):
     user_input: str
@@ -63,9 +78,23 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat", tags=["Agent Operations"])
 def chat_with_agent(
     payload: ChatRequest,
-    x_company_id: Optional[str] = Header(default="COMP-ALPHA", alias="X-Company-ID"),
+    x_company_id: Optional[str] = Header(default="COMP-SHOPIFY", alias="X-Company-ID"),
 ):
     """Processes natural language user prompt through LangChain Agent and records audit logs."""
+    from integrations.errors import TenantConfigurationError
+    from integrations.gateway import gateway
+
+    try:
+        # Store tenants: their store connector. Standalone logistics tenants (COMP-SHADOWFAX):
+        # their provider connector. Unknown/misconfigured tenants still fail here.
+        gateway.get_tenant_primary_connector(x_company_id)
+    except TenantConfigurationError as e:
+        log_terminal(f"[TENANT CONFIG ERROR] (Tenant: {x_company_id}): {e.message}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Store '{x_company_id}' is not configured. Please select a configured store.",
+        )
+
     session_id = payload.session_id or str(uuid4())
     if session_id not in sessions_memory:
         sessions_memory[session_id] = []
@@ -81,6 +110,11 @@ def chat_with_agent(
             payload.user_input,
             history_messages=history,
             company_id=x_company_id,
+            session_id=session_id,
+            # The demo UI has no customer login, so there is no verified customer ID.
+            # Wire a real authenticated session here (e.g. a signed storefront customer token).
+            authenticated_customer_id=None,
+            session_identity=sessions_identity.setdefault((session_id, x_company_id), {}),
         )
 
         if isinstance(raw_response, dict):
@@ -140,6 +174,41 @@ def get_audit_logs():
     """Returns stored audit logs from SQLite database."""
     logs = query_db("SELECT * FROM audit_logs ORDER BY id DESC")
     return {"total": len(logs), "logs": logs}
+
+
+@app.post("/api/webhooks/woocommerce", tags=["Webhooks"])
+async def woocommerce_webhook_handler(request: Request):
+    """
+    WooCommerce webhook receiver. Tenant is resolved from X-WC-Webhook-Source, the HMAC
+    signature is always required, and deliveries are deduplicated (see integrations/webhooks.py).
+    """
+    from integrations.webhooks import process_woocommerce_webhook
+
+    body_bytes = await request.body()
+    status_code, result = process_woocommerce_webhook(dict(request.headers), body_bytes)
+    if status_code != 200:
+        raise HTTPException(status_code=status_code, detail=result.get("detail"))
+    return result
+
+
+@app.post("/api/webhooks/shippo/{company_id}", tags=["Webhooks"])
+async def shippo_webhook_handler(company_id: str, request: Request, background_tasks: BackgroundTasks):
+    """
+    Shippo track_updated receiver. Authenticates the RAW body (HMAC or URL token), stores
+    the event, returns 2xx immediately and normalizes it in the background
+    (see integrations/shippo_webhooks.py).
+    """
+    from integrations.shippo_webhooks import process_tracking_event, receive_shippo_webhook
+
+    raw_body = await request.body()
+    status_code, result, event_id = receive_shippo_webhook(
+        company_id, dict(request.headers), raw_body, url_token=request.query_params.get("token")
+    )
+    if status_code >= 400:
+        raise HTTPException(status_code=status_code, detail=result.get("detail"))
+    if event_id:
+        background_tasks.add_task(process_tracking_event, event_id)
+    return result
 
 
 @app.get("/ui", response_class=HTMLResponse, tags=["Web Interface"])
@@ -525,7 +594,19 @@ def serve_chat_ui():
                 <span class="status-dot"></span> Active & Ready
             </div>
         </div>
-        <button class="test-data-btn" onclick="toggleModal(true)"> Test Data</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <select id="tenantSelect" style="background: rgba(255, 255, 255, 0.2); color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 12px; padding: 5px 8px; font-size: 0.78rem; font-family: var(--font-utility); font-weight: 600; cursor: pointer; outline: none;">
+                <option value="COMP-SHOPIFY" selected style="color: #000;">COMP-SHOPIFY (Shopify)</option>
+                <option value="COMP-WOOCOMMERCE" style="color: #000;">COMP-WOOCOMMERCE (WooCommerce)</option>
+                <option value="COMP-ALPHA" style="color: #000;">COMP-ALPHA (Local DB)</option>
+                <option value="COMP-ZOHO" style="color: #000;">COMP-ZOHO (Zoho CRM)</option>
+                <option value="COMP-SHADOWFAX" style="color: #000;">COMP-SHADOWFAX (Shadowfax Logistics)</option>
+                <option value="COMP-HUBSPOT" style="color: #000;">COMP-HUBSPOT (HubSpot CRM)</option>
+                <option value="COMP-SALESFORCE" style="color: #000;">COMP-SALESFORCE (Salesforce CRM)</option>
+                <option value="COMP-RAZORPAY" style="color: #000;">COMP-RAZORPAY (Razorpay Payments)</option>
+            </select>
+            <button class="test-data-btn" onclick="toggleModal(true)"> Test Data</button>
+        </div>
     </div>
 
     <div class="modal-overlay" id="sampleModal">
@@ -535,6 +616,27 @@ def serve_chat_ui():
                 <button class="close-btn" onclick="toggleModal(false)">&times;</button>
             </div>
             
+            <div class="sample-item" onclick="selectSample('Show me my recent orders')">
+                <div>
+                    <div class="sample-id">Show me my recent orders</div>
+                    <div class="sample-desc">Identity-first: asks for your email/phone, no order ID needed</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Where is my latest order?')">
+                <div>
+                    <div class="sample-id">Where is my latest order?</div>
+                    <div class="sample-desc">Live status of your most recent order</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Show me details of order #1003')">
+                <div>
+                    <div class="sample-id">#1003 (Shopify Store)</div>
+                    <div class="sample-desc">Explicit order number lookup (fallback)</div>
+                </div>
+            </div>
+
             <div class="sample-item" onclick="selectSample('What is the status of my order ORD-5001?')">
                 <div>
                     <div class="sample-id">ORD-5001 (Wireless Headphones)</div>
@@ -579,7 +681,7 @@ def serve_chat_ui():
     </div>
 
     <form class="input-area" id="chatForm">
-        <input type="text" id="userInput" placeholder="Ask about orders (e.g. ORD-5001)..." required autocomplete="off">
+        <input type="text" id="userInput" placeholder="Ask about your orders (e.g. Where is my latest order?)..." required autocomplete="off">
         <button type="submit">Send</button>
     </form>
 </div>
@@ -622,16 +724,20 @@ def serve_chat_ui():
         chatBox.scrollTop = chatBox.scrollHeight;
 
         try {
+            const tenantId = document.getElementById('tenantSelect')?.value || 'COMP-SHOPIFY';
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'X-Company-ID': 'COMP-ALPHA'
+                    'X-Company-ID': tenantId
                 },
                 body: JSON.stringify({ user_input: text, session_id: sessionId })
             });
 
-            if (!res.ok) throw new Error(`Server returned error: ${res.status}`);
+            if (!res.ok) {
+                const errBody = await res.json().catch(() => ({}));
+                throw new Error(errBody.detail || `Server returned error: ${res.status}`);
+            }
 
             const data = await res.json();
             
