@@ -26,6 +26,10 @@ class WooCommerceConnector(BaseConnector):
     managed_tickets = True
 
     MAX_RETRY_AFTER_SECONDS = 5.0
+    MAX_ORDER_RESULTS = 50
+    MAX_REFUND_RESULTS = 50
+    MAX_PRODUCT_DESCRIPTION_CHARS = 2000
+    MAX_VARIANT_RESULTS = 50
     LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
     def __init__(
@@ -89,6 +93,8 @@ class WooCommerceConnector(BaseConnector):
                 "code": "PROVIDER_CONFIG_INSECURE",
             }
 
+        self._client: Optional[httpx.Client] = None
+
     def credentials_configured(self) -> bool:
         return bool(self.consumer_key and self.consumer_secret)
 
@@ -106,6 +112,46 @@ class WooCommerceConnector(BaseConnector):
             clean = clean.replace(self.consumer_secret, "[REDACTED_SECRET]")
         return clean
 
+
+    def _get_client(self) -> httpx.Client:
+        """Create and reuse one HTTP connection pool for this connector instance."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "Luintix-WooCommerce-Connector/1.0",
+                },
+            )
+
+        return self._client
+
+    def close(self) -> None:
+        """Close the reusable HTTP connection pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    @staticmethod
+    def _truncate_text(value: Any, max_chars: int = 2000) -> Optional[str]:
+        """Limit large provider text before returning it through the Gateway."""
+        if value in (None, ""):
+            return None
+
+        text = str(value).strip()
+
+        if len(text) > max_chars:
+            return text[:max_chars] + "\n...[TRUNCATED FOR TOKEN LIMITS]"
+
+        return text
     # Safe, user-presentable messages. Raw provider bodies are never returned.
     ERROR_MESSAGES = {
         "PROVIDER_AUTH_FAILED": "WooCommerce authentication failed: the store's API credentials are invalid or revoked.",
@@ -118,6 +164,9 @@ class WooCommerceConnector(BaseConnector):
         "PROVIDER_UNREACHABLE": "The WooCommerce store could not be reached.",
         "PROVIDER_INVALID_RESPONSE": "The WooCommerce store returned an unexpected response.",
         "PROVIDER_ERROR": "The WooCommerce store returned an error.",
+        "PROVIDER_API_UNAVAILABLE": "WooCommerce REST API is not available at the configured store URL. Check WOOCOMMERCE_BASE_URL and that the REST API is enabled.",
+        "PROVIDER_VALIDATION_FAILED": "WooCommerce rejected the request as invalid.",
+        "RATE_LIMITED": "WooCommerce is rate limiting requests right now. Please try again shortly.",
     }
 
     def _error(self, code: str, status: Any = None) -> Dict[str, Any]:
@@ -192,23 +241,41 @@ class WooCommerceConnector(BaseConnector):
         for attempt in range(1, attempts + 1):
             response = None
             try:
-                with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
-                    response = client.request(
-                        method=method,
-                        url=url,
-                        params=request_params,
-                        json=json_data,
-                        headers=headers,
-                        auth=auth_arg,
-                    )
+                
+                client = self._get_client()
+
+                response = client.request(
+                    method=method,
+                    url=url,
+                    params=request_params,
+                    json=json_data,
+                    auth=auth_arg,
+                )
                 status = response.status_code
                 log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
 
                 if status in (200, 201):
                     try:
-                        return response.json()
+                        data = response.json()
                     except ValueError:
-                        return self._error("PROVIDER_INVALID_RESPONSE", status)
+                        return self._error(
+                            "PROVIDER_INVALID_RESPONSE",
+                            status,
+                        )
+
+                    if data is None:
+                        return self._error(
+                            "PROVIDER_INVALID_RESPONSE",
+                            status,
+                        )
+
+                    return data
+
+                if status == 400:
+                    return self._error(
+                        "PROVIDER_VALIDATION_FAILED",
+                        status,
+                    )
                 if status == 401:
                     return self._error("PROVIDER_AUTH_FAILED", status)
                 if status == 403:
@@ -377,18 +444,40 @@ class WooCommerceConnector(BaseConnector):
         return shop_info.model_dump()
 
     def get_orders(self, company_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Retrieve list of orders from WooCommerce REST API v3."""
-        res = self._execute_request("GET", "orders", params={"per_page": limit})
+        """Retrieve a bounded list of recent WooCommerce orders."""
+        try:
+            safe_limit = max(
+                1,
+                min(
+                    int(limit),
+                    self.MAX_ORDER_RESULTS,
+                ),
+            )
+        except (TypeError, ValueError):
+            safe_limit = 10
+
+        res = self._execute_request(
+            "GET",
+            "orders",
+            params={
+                "per_page": safe_limit,
+            },
+        )
+
         if isinstance(res, dict) and "error" in res:
             return [res]
 
         if not isinstance(res, list):
             return []
 
-        results = []
-        for o in res:
-            results.append(self._transform_woocommerce_order(o, company_id))
-        return results
+        return [
+            self._transform_woocommerce_order(
+                order,
+                company_id,
+            )
+            for order in res[:safe_limit]
+            if isinstance(order, dict)
+        ]
 
     @staticmethod
     def _order_number(order: Dict[str, Any]) -> str:
@@ -611,7 +700,9 @@ class WooCommerceConnector(BaseConnector):
                     "sku": res.get("sku"),
                     "stock_status": res.get("stock_status"),
                     "stock_quantity": res.get("stock_quantity"),
-                    "description": res.get("short_description") or res.get("description"),
+                    "description": self._truncate_text(res.get("short_description") or res.get("description"),
+                                                       self.MAX_PRODUCT_DESCRIPTION_CHARS,
+                                                      ),
                     "provider": "WOOCOMMERCE",
                 }
 
@@ -634,7 +725,8 @@ class WooCommerceConnector(BaseConnector):
                 "sku": p.get("sku"),
                 "stock_status": p.get("stock_status"),
                 "stock_quantity": p.get("stock_quantity"),
-                "description": p.get("short_description") or p.get("description"),
+                "description": self._truncate_text(p.get("short_description") or p.get("description"),self.MAX_PRODUCT_DESCRIPTION_CHARS,
+                                                  ),
                 "provider": "WOOCOMMERCE",
             }
 
@@ -667,10 +759,13 @@ class WooCommerceConnector(BaseConnector):
                     "stock_status": v.get("stock_status"),
                     "stock_quantity": v.get("stock_quantity"),
                 }
-                for v in (variations if isinstance(variations, list) else [])
+                
+                for v in (
+                    variations[:self.MAX_VARIANT_RESULTS]
+                    if isinstance(variations, list)
+                    else []
+                )
             ]
-        return inventory
-
     def cancel_order(
         self, order_id: str, company_id: str, reason: Optional[str] = "CUSTOMER"
     ) -> Dict[str, Any]:
@@ -797,7 +892,7 @@ class WooCommerceConnector(BaseConnector):
 
         refunds_list = []
         total_refunded = 0.0
-        for r in res:
+        for r in res[:self.MAX_REFUND_RESULTS]:
             amt = float(r.get("amount") or 0.0)
             total_refunded += amt
             refunds_list.append({

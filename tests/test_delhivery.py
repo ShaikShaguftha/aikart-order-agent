@@ -6,6 +6,7 @@ prove tenant isolation, GET-only behaviour and that no AWB or status is ever inv
 import io
 import json
 import os
+import sys
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
@@ -63,17 +64,54 @@ class FakeDelhivery:
     def __init__(self):
         self.calls, self.queue = [], []
 
-    def __call__(self, method=None, url=None, params=None, headers=None, **_):
+    @staticmethod
+    def _normalized_headers(headers):
+        """
+        Normalize persistent httpx client headers for predictable test assertions.
+        HTTPX may internally use lowercase keys.
+        """
+        return {
+            "-".join(part.capitalize() for part in str(key).split("-")): value
+            for key, value in dict(headers or {}).items()
+        }
+
+    def __call__(
+        self,
+        client,
+        method=None,
+        url=None,
+        params=None,
+        headers=None,
+        **_,
+    ):
         host, path = url.split("://", 1)[1].split("/", 1)
-        self.calls.append({"method": method, "host": host, "path": path, "waybill": (params or {}).get("waybill"),
-                           "auth": dict(headers or {})})
+
+        effective_headers = headers or client.headers
+
+        self.calls.append(
+            {
+                "method": method,
+                "host": host,
+                "path": path,
+                "waybill": (params or {}).get("waybill"),
+                "auth": self._normalized_headers(effective_headers),
+            }
+        )
+
         if self.queue:
             item = self.queue.pop(0)
+
             if isinstance(item, Exception):
                 raise item
-            return item
-        return _resp(200, shipment(awb=(params or {}).get("waybill")))
 
+            return item
+
+        return _resp(
+            200,
+            shipment(
+                awb=(params or {}).get("waybill"),
+            ),
+        )
 
 class DelhiveryFixture(unittest.TestCase):
 
@@ -88,6 +126,13 @@ class DelhiveryFixture(unittest.TestCase):
         cls.env.stop()
 
     def setUp(self):
+
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so redirect it to
+        # the active valid stdout stream during each test.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
         for table in ("carrier_integrations", "shipping_integrations"):
             execute_db(f"DELETE FROM {table}")
         IntegrationGateway._delhivery_env_invalid.clear()
@@ -115,7 +160,12 @@ class DelhiveryFixture(unittest.TestCase):
                                 "tracking_history": []})
                 return r
             if "delhivery.com" in str(url):
-                return fake(method=method, url=str(url), **kwargs)
+                return fake(
+                    client,
+                    method=method,
+                    url=str(url),
+                    **kwargs,
+                )
             return original(client, method, url, *args, **kwargs)
 
         original = httpx.Client.request
@@ -149,12 +199,80 @@ class TrackingTest(DelhiveryFixture):
                          ("GET", "track.delhivery.com", "api/v1/packages/json/", AWB))
         self.assertEqual(call["auth"]["Authorization"], f"Token {TOKEN_A}")
 
+
+    def test_http_client_reused_and_closed(self):
+        connector = DelhiveryConnector(
+            api_token=TOKEN_A,
+            base_url="https://track.delhivery.com",
+            timeout=2.0,
+            retry_backoff=0.001,
+        )
+
+        first_client = connector._get_client()
+        second_client = connector._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        connector.close()
+
+        self.assertIsNone(connector._client)
+        self.assertTrue(first_client.is_closed)
+        
     def test_02_tracking_history(self):
         history = self.direct(history=True)["tracking"]["tracking_history"]
         self.assertEqual([(h["provider_status"], h["status"]) for h in history], [("Manifested", "PRE_TRANSIT"), ("In Transit", "IN_TRANSIT")])
         self.assertEqual(history[0]["location"]["label"], "Mumbai_Hub (Maharashtra)")
         self.assertNotIn("tracking_history", self.direct()["tracking"])
 
+
+    def test_large_tracking_history_and_instruction_text_are_truncated(self):
+        long_instruction = "X" * 2000
+
+        scans = [
+            {
+                "ScanDetail": {
+                    "Scan": "In Transit",
+                    "ScanType": "UD",
+                    "ScannedLocation": "Transit Hub",
+                    "ScanDateTime": "2026-09-28T10:00:00",
+                    "Instructions": long_instruction,
+                }
+            }
+            for _ in range(150)
+        ]
+
+        raw_shipment = shipment(
+            scans=scans,
+            instructions=long_instruction,
+        )["ShipmentData"][0]["Shipment"]
+
+        normalized = DelhiveryConnector.normalize_shipment(
+            raw_shipment,
+        )
+
+        self.assertEqual(
+            len(normalized["tracking_history"]),
+            100,
+        )
+
+        self.assertLessEqual(
+            len(normalized["status_details"]),
+            550,
+        )
+
+        first_scan = normalized["tracking_history"][0]
+
+        self.assertLessEqual(
+            len(first_scan["status_details"]),
+            550,
+        )
+
+        self.assertIn(
+            "[TRUNCATED FOR TOKEN LIMITS]",
+            first_scan["status_details"],
+        )
+        
     def test_03_normalized_statuses(self):
         cases = {"Pending": ("PRE_TRANSIT", "PENDING"), "Ready to Ship": ("PRE_TRANSIT", "READY_TO_SHIP"),
                  "Ready for Pickup": ("PRE_TRANSIT", "READY_FOR_PICKUP"), "In Transit": ("IN_TRANSIT", "IN_TRANSIT"),
@@ -289,8 +407,22 @@ class RoutingAndIsolationTest(DelhiveryFixture):
             self.assertFalse(gateway.has_delhivery(STORE_T))
             self.direct(tenant=ENV_T)
             self.direct(tenant=DLV_A)  # DB tenant keeps its own token even when env is set
-        self.assertEqual(self.fake.calls[0]["auth"], {"X-Api-Key": TOKEN_ENV, "Accept": "application/json",
-                                                      "User-Agent": "Luintix-Delhivery-Connector/1.0"})
+        env_headers = self.fake.calls[0]["auth"]
+
+        self.assertEqual(
+            env_headers["X-Api-Key"],
+            TOKEN_ENV,
+        )
+
+        self.assertEqual(
+            env_headers["Accept"],
+            "application/json",
+        )
+
+        self.assertEqual(
+            env_headers["User-Agent"],
+            "Luintix-Delhivery-Connector/1.0",
+        )
         self.assertEqual(self.fake.calls[1]["auth"]["Authorization"], f"Token {TOKEN_A}")
 
     def test_15c_non_delhivery_base_url_is_refused_without_request(self):

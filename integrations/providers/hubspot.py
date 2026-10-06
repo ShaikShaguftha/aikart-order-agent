@@ -72,6 +72,34 @@ class HubSpotConnector(BaseConnector):
         self.access_token = (access_token or "").strip()
         self.timeout = timeout
         self.retry_backoff = retry_backoff
+        self._client: Optional[httpx.Client] = None
+
+    def _get_client(self) -> httpx.Client:
+        """Reuse persistent HTTP connection pool across all requests."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Luintix-HubSpot-Connector/1.0",
+                },
+            )
+        return self._client
+
+    def close(self) -> None:
+        """Explicitly release HTTP socket pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     # ---- configuration & secrets -----------------------------------------------------
 
@@ -91,7 +119,7 @@ class HubSpotConnector(BaseConnector):
         return text.replace(self.access_token, "[REDACTED_TOKEN]") if self.access_token else text
 
     def _error(self, code: str, status: Any = None) -> Dict[str, Any]:
-        err = {"error": self.ERROR_MESSAGES[code], "code": code}
+        err = {"error": self.ERROR_MESSAGES.get(code, "An unknown error occurred."), "code": code}
         if code == "PROVIDER_AUTH_FAILED":
             err["reconnect_required"] = True
         if status is not None:
@@ -127,12 +155,13 @@ class HubSpotConnector(BaseConnector):
         for attempt in range(1, max_retries + 1):
             response = None
             try:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    response = client.request(
-                        method=method, url=f"{BASE_URL}/{path}", params=params, json=json_body,
-                        headers={"Authorization": f"Bearer {self.access_token}", "Accept": "application/json",
-                                 "Content-Type": "application/json", "User-Agent": "Luintix-HubSpot-Connector/1.0"},
-                    )
+                client = self._get_client()
+                response = client.request(
+                    method=method,
+                    url=f"{BASE_URL}/{path}",
+                    params=params,
+                    json=json_body
+                )
                 status = response.status_code
                 log_provider_call(self.provider_name, operation, status)
                 if status == 200:
@@ -295,7 +324,7 @@ class HubSpotConnector(BaseConnector):
         return {"name": "HubSpot CRM", "domain": BASE_URL, "provider": self.provider_name}
 
     def get_orders(self, company_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        return [self._unsupported()]
+        return []
 
     def get_customer_details(self, identifier: str, company_id: str) -> List[Dict[str, Any]]:
         return []

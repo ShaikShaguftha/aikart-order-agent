@@ -84,6 +84,8 @@ class DelhiveryConnector:
     provider_name = "DELHIVERY"
     MAX_RETRY_AFTER_SECONDS = 5.0
     MAX_BACKOFF_SECONDS = 8.0
+    MAX_TRACKING_EVENTS = 100
+    MAX_STATUS_TEXT_CHARS = 500
 
     ERROR_MESSAGES = {
         "PROVIDER_AUTH_FAILED": "Delhivery rejected the API token. The merchant must reconnect Delhivery.",
@@ -119,6 +121,7 @@ class DelhiveryConnector:
         self.auth_scheme = scheme if SCHEME_PATTERN.match(scheme) else None
         self.timeout = timeout
         self.retry_backoff = retry_backoff
+        self._client: Optional[httpx.Client] = None
 
     def credentials_configured(self) -> bool:
         return bool(self.api_token)
@@ -136,6 +139,32 @@ class DelhiveryConnector:
         """The single place the Delhivery credential format is defined (configurable per tenant)."""
         value = f"{self.auth_scheme} {self.api_token}" if self.auth_scheme else self.api_token
         return {self.auth_header: value}
+
+    def _get_client(self) -> httpx.Client:
+        """Create and reuse one HTTP connection pool for this connector instance."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    **self._auth_headers(),
+                    "Accept": "application/json",
+                    "User-Agent": "Luintix-Delhivery-Connector/1.0",
+                },
+            )
+        return self._client
+
+    def close(self) -> None:
+        """Close the reusable HTTP connection pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def _sanitize_error(self, message: str) -> str:
         return str(message).replace(self.api_token, "[REDACTED_TOKEN]") if self.api_token else str(message)
@@ -167,14 +196,14 @@ class DelhiveryConnector:
         for attempt in range(1, max_retries + 1):
             response = None
             try:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client: 
+                    client = self._get_client()
                     response = client.request(
                         method="GET",
                         url=f"{self.base_url}/{path}",
                         params=params,
-                        headers={**self._auth_headers(), "Accept": "application/json",
-                                 "User-Agent": "Luintix-Delhivery-Connector/1.0"},
                     )
+                    
                 status = response.status_code
                 log_provider_call(self.provider_name, f"GET {path}", status)
                 if status == 200:
@@ -230,6 +259,20 @@ class DelhiveryConnector:
             return {"detected": True, "code": code or None, "reason": instructions or None}
         return None
 
+
+    @staticmethod
+    def _truncate_text(value: Any, max_chars: int = 500) -> Optional[str]:
+        """Limit long provider text before returning it through the connector."""
+        if value in (None, ""):
+            return None
+
+        text = str(value).strip()
+
+        if len(text) > max_chars:
+            return text[:max_chars] + "\n...[TRUNCATED FOR TOKEN LIMITS]"
+
+        return text
+
     @classmethod
     def _scan(cls, raw: Dict[str, Any]) -> Dict[str, Any]:
         detail = raw.get("ScanDetail") if isinstance(raw.get("ScanDetail"), dict) else raw
@@ -246,7 +289,10 @@ class DelhiveryConnector:
             "substatus": sub,
             "substatus_text": None,
             "action_required": bool(ndr),
-            "status_details": detail.get("Instructions"),
+            "status_details": cls._truncate_text(
+                detail.get("Instructions"),
+                cls.MAX_STATUS_TEXT_CHARS,
+            ),
             "status_date": detail.get("ScanDateTime") or detail.get("StatusDateTime"),
             "location": {"label": location, "city": None, "region": None, "country": None} if location else None,
             "provider_reference": None,
@@ -283,7 +329,10 @@ class DelhiveryConnector:
             "provider_status_type": current.get("StatusType"),
             "substatus": sub,
             "substatus_text": None,
-            "status_details": current.get("Instructions"),
+            "status_details": cls._truncate_text(
+                current.get("Instructions"),
+                cls.MAX_STATUS_TEXT_CHARS,
+            ),
             "action_required": bool(ndr),
             "ndr_state": ndr,
             "status_location": location,
@@ -293,7 +342,11 @@ class DelhiveryConnector:
             "current_location": {"label": location, "city": None, "region": None, "country": None} if location else None,
             "order_reference": shipment.get("ReferenceNo") or None,
             "pickup_date": shipment.get("PickUpDate") or None,
-            "tracking_history": [cls._scan(s) for s in scans if isinstance(s, dict)],
+            "tracking_history": [
+                cls._scan(scan)
+                for scan in scans[-cls.MAX_TRACKING_EVENTS:]
+                if isinstance(scan, dict)
+            ],
             "source_updated_at": current.get("StatusDateTime"),
             "provider_reference": None,
             "test_mode": None,

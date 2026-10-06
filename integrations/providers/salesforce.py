@@ -121,6 +121,7 @@ class SalesforceConnector(BaseConnector):
         self.api_version = f"v{match.group(1)}.0" if match else None
         self.timeout = timeout
         self.retry_backoff = retry_backoff
+        self._client: Optional[httpx.Client] = None
 
     # ---- configuration & secrets -----------------------------------------------------
 
@@ -167,7 +168,7 @@ class SalesforceConnector(BaseConnector):
         base = self.retry_backoff * (2 ** (attempt - 1))
         return min(base + random.uniform(0, self.retry_backoff), self.MAX_BACKOFF_SECONDS)
 
-    # ---- transport ---------------------------------------------------------------------
+        # ---- transport ---------------------------------------------------------------------
 
     @staticmethod
     def _error_codes(response: httpx.Response) -> Optional[List[str]]:
@@ -176,69 +177,181 @@ class SalesforceConnector(BaseConnector):
             body = response.json()
         except ValueError:
             return None
-        items = body if isinstance(body, list) else [body]
-        return [str(i.get("errorCode") or "") for i in items if isinstance(i, dict)]
 
-    def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
-                 operation: str = "", max_retries: int = 3) -> Any:
-        """GET only (safe to retry on 429 / 5xx / timeouts: nothing is modified)."""
+        items = body if isinstance(body, list) else [body]
+
+        return [
+            str(item.get("errorCode") or "")
+            for item in items
+            if isinstance(item, dict)
+        ]
+
+    def _get_client(self) -> httpx.Client:
+        """Create and reuse one HTTP connection pool for this connector instance."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Accept": "application/json",
+                    "User-Agent": "Luintix-Salesforce-Connector/1.0",
+                },
+            )
+
+        return self._client
+
+    def close(self) -> None:
+        """Close the reusable HTTP connection pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        operation: str = "",
+        max_retries: int = 3,
+    ) -> Any:
+        """GET only; safe to retry because Salesforce Phase 1 is read-only."""
         method = method.upper()
+
         if method != "GET":
-            return {"error": "Only read operations are allowed for Salesforce.", "code": "NOT_SUPPORTED"}
+            return {
+                "error": "Only read operations are allowed for Salesforce.",
+                "code": "NOT_SUPPORTED",
+            }
+
         config_error = self.configuration_error()
+
         if config_error:
             return config_error
-        operation = f"{method} {operation or path}"  # never the SOQL text (it holds customer data)
+
+        # Never log the SOQL query because it may contain customer data.
+        operation = f"{method} {operation or path}"
+
         last_error: Dict[str, Any] = self._error("PROVIDER_ERROR")
+
         for attempt in range(1, max_retries + 1):
             response = None
+
             try:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    response = client.request(
-                        method=method, url=f"{self.instance_url}/{path}", params=params,
-                        headers={"Authorization": f"Bearer {self.access_token}", "Accept": "application/json",
-                                 "User-Agent": "Luintix-Salesforce-Connector/1.0"},
-                    )
+                client = self._get_client()
+
+                response = client.request(
+                    method=method,
+                    url=f"{self.instance_url}/{path}",
+                    params=params,
+                )
+
                 status = response.status_code
-                log_provider_call(self.provider_name, operation, status)
+
+                log_provider_call(
+                    self.provider_name,
+                    operation,
+                    status,
+                )
+
                 if status == 200:
                     try:
                         return response.json()
                     except ValueError:
-                        return self._error("PROVIDER_INVALID_RESPONSE", status)
+                        return self._error(
+                            "PROVIDER_INVALID_RESPONSE",
+                            status,
+                        )
+
                 codes = self._error_codes(response)
+
                 if status == 401:
-                    return self._error("PROVIDER_AUTH_FAILED", status)
+                    return self._error(
+                        "PROVIDER_AUTH_FAILED",
+                        status,
+                    )
+
                 if status == 403:
-                    # The org's rolling 24h API request limit is reported as 403; retrying won't help.
+                    # Salesforce can report rolling API-limit exhaustion as 403.
                     if codes and "REQUEST_LIMIT_EXCEEDED" in codes:
-                        return self._error("RATE_LIMITED", status)
-                    return self._error("PROVIDER_FORBIDDEN", status)
+                        return self._error(
+                            "RATE_LIMITED",
+                            status,
+                        )
+
+                    return self._error(
+                        "PROVIDER_FORBIDDEN",
+                        status,
+                    )
+
                 if status == 404:
-                    # JSON error list (NOT_FOUND) = the resource; non-JSON = the route / instance.
-                    return self._error("NOT_FOUND" if codes else "PROVIDER_API_UNAVAILABLE", status)
+                    # JSON Salesforce errors indicate a missing resource.
+                    # Non-JSON 404 likely indicates route/instance/version issue.
+                    return self._error(
+                        "NOT_FOUND" if codes else "PROVIDER_API_UNAVAILABLE",
+                        status,
+                    )
+
                 if status == 400:
-                    return self._error("PROVIDER_VALIDATION_FAILED", status)
+                    return self._error(
+                        "PROVIDER_VALIDATION_FAILED",
+                        status,
+                    )
+
                 if status == 429:
-                    last_error = self._error("RATE_LIMITED", status)
+                    last_error = self._error(
+                        "RATE_LIMITED",
+                        status,
+                    )
+
                 elif status >= 500:
-                    last_error = self._error("PROVIDER_UNAVAILABLE", status)
+                    last_error = self._error(
+                        "PROVIDER_UNAVAILABLE",
+                        status,
+                    )
+
                 elif 300 <= status < 400:
-                    # A redirect usually means a wrong instance URL; never follow it with the token.
-                    return self._error("PROVIDER_API_UNAVAILABLE", status)
+                    # Do not follow redirects with a Bearer token.
+                    return self._error(
+                        "PROVIDER_API_UNAVAILABLE",
+                        status,
+                    )
+
                 else:
-                    return self._error("PROVIDER_ERROR", status)
+                    return self._error(
+                        "PROVIDER_ERROR",
+                        status,
+                    )
+
             except httpx.TimeoutException:
                 last_error = self._error("PROVIDER_TIMEOUT")
+
             except httpx.TransportError:
                 last_error = self._error("PROVIDER_UNREACHABLE")
-            except Exception as e:
-                logger.warning(f"[SALESFORCE] request failed: {self._sanitize_error(type(e).__name__)}")
-                return self._error("PROVIDER_ERROR")
-            if attempt < max_retries:
-                time.sleep(self._backoff(attempt, response))
-        return last_error
 
+            except Exception as error:
+                logger.warning(
+                    f"[SALESFORCE] request failed: "
+                    f"{self._sanitize_error(type(error).__name__)}"
+                )
+                return self._error("PROVIDER_ERROR")
+
+            if attempt < max_retries:
+                time.sleep(
+                    self._backoff(
+                        attempt,
+                        response,
+                    )
+                )
+
+        return last_error
     def _resolve_api_version(self) -> Any:
         """Configured version, else the newest version the org reports (cached per instance)."""
         if self.api_version:
@@ -414,10 +527,36 @@ class SalesforceConnector(BaseConnector):
         return {"name": "Salesforce CRM", "domain": self.instance_url, "provider": self.provider_name}
 
     def get_orders(self, company_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        return [self._unsupported()]
-
-    def get_customer_details(self, identifier: str, company_id: str) -> List[Dict[str, Any]]:
         return []
+    # CHANGE 1 
+    def get_customer_details(self, identifier: str, company_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves customer details by Record ID, Email, Phone, or Name.
+        Normalizes the response to return a list of contact dictionaries.
+        """
+        ident = (identifier or "").strip()
+        if not ident:
+            return []
+
+        # 1. Direct lookup if identifier is a Salesforce Contact ID (e.g., starts with 003)
+        if RECORD_ID_PATTERN.match(ident) and ident.startswith(KEY_PREFIXES["Contact"]):
+            res = self.get_contact(ident)
+            return [res] if not self._is_error(res) else []
+
+        # 2. Search by Email
+        if EMAIL_PATTERN.match(ident):
+            res = self.search_contacts(email=ident)
+        # 3. Search by Phone
+        elif PHONE_PATTERN.match(ident):
+            res = self.search_contacts(phone=ident)
+        # 4. Search by Name
+        else:
+            res = self.search_contacts(name=ident)
+
+        if self._is_error(res):
+            return []
+
+        return res.get("contacts", [])
 
     def get_order_details(self, order_id: str, company_id: str) -> Optional[Dict[str, Any]]:
         return self._unsupported()
@@ -439,6 +578,8 @@ class SalesforceConnector(BaseConnector):
 
     def escalate_to_human(self, order_id: str, reason: str, company_id: str) -> Dict[str, Any]:
         return {**self._unsupported(), "status": "ERROR"}  # never invents a case reference
-
+# CHANGE 3 
     def get_ticket_details(self, ticket_id: str, company_id: str) -> Dict[str, Any]:
-        return self._unsupported()
+        if not (ticket_id or "").strip():
+            return {"error": "Ticket ID or Case Number is required.", "code": "INVALID_ARGUMENT"}
+        return self.get_case(ticket_id)

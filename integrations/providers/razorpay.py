@@ -28,6 +28,16 @@ import httpx
 from integrations.base import BaseConnector, log_provider_call
 from integrations.models import PaymentRecord, RefundRecord
 
+import json
+
+def estimate_tokens(data: Any) -> int:
+    """Estimates token count (~4 chars/token) for LLM context tracking."""
+    try:
+        return len(json.dumps(data, default=str)) // 4
+    except Exception:
+        return 0
+    
+
 logger = logging.getLogger("uvicorn.error")
 
 BASE_URL = "https://api.razorpay.com/v1"  # fixed: never taken from config or the LLM
@@ -35,7 +45,7 @@ BASE_URL = "https://api.razorpay.com/v1"  # fixed: never taken from config or th
 KEY_ID_PATTERN = re.compile(r"^rzp_(test|live)_[A-Za-z0-9]{6,40}$")
 PAYMENT_ID_PATTERN = re.compile(r"^pay_[A-Za-z0-9]{8,40}$")
 REFUND_ID_PATTERN = re.compile(r"^rfnd_[A-Za-z0-9]{8,40}$")
-REFUND_PAGE_SIZE = 100  # Razorpay maximum per page
+REFUND_PAGE_SIZE = 10  # Razorpay maximum per page
 
 # Razorpay amounts are in the smallest currency unit; exponent 2 unless listed here.
 CURRENCY_EXPONENTS = {"JPY": 0, "KRW": 0, "VND": 0, "CLP": 0, "PYG": 0, "ISK": 0, "UGX": 0, "XAF": 0, "XOF": 0,
@@ -68,6 +78,8 @@ class RazorpayConnector(BaseConnector):
         self.key_secret = (key_secret or "").strip()
         self.timeout = timeout
         self.retry_backoff = retry_backoff
+        self._client: Optional[httpx.Client] = None
+
 
     # ---- configuration & secrets -----------------------------------------------------
 
@@ -134,6 +146,40 @@ class RazorpayConnector(BaseConnector):
         error = body.get("error") if isinstance(body, dict) else None
         return str(error.get("description") or "").lower() if isinstance(error, dict) else None
 
+    def _get_client(self) -> httpx.Client:
+        """Create and reuse one HTTP client connection pool for this connector instance."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    "Authorization": f"Basic {self._basic_token()}",
+                    "Accept": "application/json",
+                    "User-Agent": "Luintix-Razorpay-Connector/1.0",
+                },
+            )
+        return self._client
+        
+    def close(self) -> None:
+        """Close the persistent HTTP connection pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+            self._client = None
+        
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        
+    def _send_request(self, method: str, path: str, params: Optional[Dict[str, Any]]) -> httpx.Response:
+        """Internal HTTP request helper, kept separately so unit tests can mock it."""
+        return self._get_client().request(
+            method=method,
+            url=f"{BASE_URL}/{path}",
+            params=params,
+        )
+
     def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
                  operation: str = "", max_retries: int = 3) -> Any:
         """GET only (safe to retry on 429 / 5xx / timeouts: nothing is modified)."""
@@ -148,18 +194,16 @@ class RazorpayConnector(BaseConnector):
         for attempt in range(1, max_retries + 1):
             response = None
             try:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    response = client.request(
-                        method=method, url=f"{BASE_URL}/{path}", params=params,
-                        headers={"Authorization": f"Basic {self._basic_token()}", "Accept": "application/json",
-                                 "User-Agent": "Luintix-Razorpay-Connector/1.0"},
-                    )
+                response = self._send_request(method, path, params)
                 status = response.status_code
                 log_provider_call(self.provider_name, operation, status)
                 if status == 200:
                     try:
-                        return response.json()
-                    except ValueError:
+                        data = response.json()
+                        tokens = estimate_tokens(data)
+                        logger.info(f"[{self.provider_name}] Path: {operation} | Response Tokens: ~{tokens}")
+                        return data
+                    except (ValueError, TypeError):
                         return self._error("PROVIDER_INVALID_RESPONSE", status)
                 description = self._error_description(response)
                 if status == 401:
@@ -167,8 +211,6 @@ class RazorpayConnector(BaseConnector):
                 if status == 403:
                     return self._error("PROVIDER_FORBIDDEN", status)
                 if status in (400, 404):
-                    # Razorpay reports an unknown ID as 400 "The id provided does not exist" and an
-                    # unknown route as "The requested URL was not found on the server".
                     if description is None:
                         return self._error("PROVIDER_API_UNAVAILABLE" if status == 404 else "PROVIDER_VALIDATION_FAILED", status)
                     if "url was not found" in description:
@@ -230,7 +272,7 @@ class RazorpayConnector(BaseConnector):
             captured=p.get("captured") if isinstance(p.get("captured"), bool) else None,
             amount_refunded=self._major(refunded, currency), refund_status=self._text(p.get("refund_status")),
             created_at=self._timestamp(p.get("created_at")), provider=self.provider_name,
-        ).model_dump()
+        ).model_dump(exclude_none=True)
 
     def _refund(self, r: Dict[str, Any]) -> Dict[str, Any]:
         currency = self._text(r.get("currency"))
@@ -240,7 +282,7 @@ class RazorpayConnector(BaseConnector):
             amount_minor=amount, currency=currency, status=self._text(r.get("status")),
             speed=self._text(r.get("speed_processed") or r.get("speed_requested") or r.get("speed")),
             created_at=self._timestamp(r.get("created_at")), provider=self.provider_name,
-        ).model_dump()
+        ).model_dump(exclude_none=True)
 
     @staticmethod
     def _valid_id(pattern: "re.Pattern", value: Any) -> Optional[str]:
@@ -261,24 +303,26 @@ class RazorpayConnector(BaseConnector):
             return self._error("PROVIDER_INVALID_RESPONSE")
         return self._payment(body)
 
-    def get_payment_refunds(self, payment_id: str) -> Dict[str, Any]:
+    def get_payment_refunds(self, payment_id: str, limit: int = REFUND_PAGE_SIZE) -> Dict[str, Any]:
         """All refunds of one payment: {"payment_id", "refunds": [...], "count", "more_records"}."""
         pid = self._valid_id(PAYMENT_ID_PATTERN, payment_id)
         if not pid:
             return {"error": "That is not a valid Razorpay payment ID (it looks like pay_XXXXXXXXXXXXXX).",
                     "code": "INVALID_RECORD_ID"}
-        body = self._request("GET", f"payments/{pid}/refunds", {"count": REFUND_PAGE_SIZE},
+ 
+        count = min(max(1, limit), REFUND_PAGE_SIZE)
+        body = self._request("GET", f"payments/{pid}/refunds", {"count": count},
                              operation="payments/{payment_id}/refunds")
         if self._is_error(body):
             return body
         items = body.get("items") if isinstance(body, dict) and body.get("entity") == "collection" else None
         if not isinstance(items, list):
             return self._error("PROVIDER_INVALID_RESPONSE")
-        refunds = [r for r in items if self._entity(r, "refund")]
+        refunds = [r for r in items[:count] if self._entity(r, "refund")]
         if any(r.get("payment_id") != pid for r in refunds):
             return self._error("PROVIDER_INVALID_RESPONSE")  # never attribute another payment's refund
         return {"payment_id": pid, "refunds": [self._refund(r) for r in refunds], "count": len(refunds),
-                "more_records": len(items) >= REFUND_PAGE_SIZE, "provider": self.provider_name}
+                "more_records": len(items) > count or len(items) >= REFUND_PAGE_SIZE, "provider": self.provider_name}
 
     def get_refund(self, refund_id: str) -> Dict[str, Any]:
         rid = self._valid_id(REFUND_ID_PATTERN, refund_id)
@@ -301,13 +345,14 @@ class RazorpayConnector(BaseConnector):
         return {"name": "Razorpay", "domain": BASE_URL, "provider": self.provider_name}
 
     def get_orders(self, company_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        return [self._unsupported()]
+        return []
 
     def get_customer_details(self, identifier: str, company_id: str) -> List[Dict[str, Any]]:
         return []
 
     def get_order_details(self, order_id: str, company_id: str) -> Optional[Dict[str, Any]]:
-        return self._unsupported()
+        # Optional change: signals that customer searching is not supported on this provider
+        return None
 
     def get_shipment_status(self, order_id: str, company_id: str) -> Optional[Dict[str, Any]]:
         return self._unsupported()

@@ -163,6 +163,8 @@ class ShadowfaxConnector:
 
     MAX_RETRY_AFTER_SECONDS = 5.0
     MAX_BACKOFF_SECONDS = 8.0
+    MAX_TRACKING_EVENTS = 100
+    MAX_EVENT_TEXT_CHARS = 500
 
     ERROR_MESSAGES = {
         "MISSING_CREDENTIALS": "Shadowfax API credentials missing. SHADOWFAX_API_TOKEN or SHADOWFAX_CLIENT_ID/SHADOWFAX_CLIENT_SECRET is required.",
@@ -202,6 +204,7 @@ class ShadowfaxConnector:
         self.timeout = timeout
         self.retry_backoff = retry_backoff
         self.credential_source = "ENV"
+        self._client: Optional[httpx.Client] = None
 
     def credentials_configured(self) -> bool:
         return bool(self.api_token or (self.client_id and self.client_secret))
@@ -224,6 +227,33 @@ class ShadowfaxConnector:
         if self.client_secret:
             headers["X-Client-Secret"] = self.client_secret
         return headers
+
+
+    def _get_client(self) -> httpx.Client:
+        """Create and reuse one HTTP connection pool for this connector instance."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    **self._auth_headers(),
+                    "Accept": "application/json",
+                    "User-Agent": "Luintix-Shadowfax-Connector/1.0",
+                },
+            )
+        return self._client
+
+    def close(self) -> None:
+        """Close the reusable HTTP connection pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def _sanitize_error(self, message: Any) -> str:
         """Redact tokens and client secrets from diagnostic messages."""
@@ -265,16 +295,15 @@ class ShadowfaxConnector:
             try:
                 url = build_url(self.base_url, path)
                 with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                    url = build_url(self.base_url, path)
+                    client = self._get_client()
+                    
                     response = client.request(
                         method="GET",
                         url=url,
                         params=params,
-                        headers={
-                            **self._auth_headers(),
-                            "Accept": "application/json",
-                            "User-Agent": "Luintix-Shadowfax-Connector/1.0",
-                        },
                     )
+                    
                 status = response.status_code
                 log_provider_call(self.provider_name, f"GET {path}", status)
                 if status == 200:
@@ -331,7 +360,14 @@ class ShadowfaxConnector:
             timestamp=raw.get("created") or raw.get("timestamp") or raw.get("time") or raw.get("date") or raw.get("scan_date_time"),
             status=str(status_text),
             location=raw.get("location") or raw.get("city") or raw.get("hub") or raw.get("scanned_location"),
-            description=raw.get("remarks") or raw.get("description") or raw.get("message") or raw.get("remark") or raw.get("instructions"),
+            description=cls._truncate_text(
+                raw.get("remarks")
+                or raw.get("description")
+                or raw.get("message")
+                or raw.get("remark")
+                or raw.get("instructions"),
+                cls.MAX_EVENT_TEXT_CHARS,
+            ),
         )
 
     @staticmethod
@@ -348,6 +384,19 @@ class ShadowfaxConnector:
             if isinstance(scan, dict) and scan.get("status_id") in status_ids:
                 return scan.get("created")
         return None
+
+    @staticmethod
+    def _truncate_text(value: Any, max_chars: int = 500) -> Optional[str]:
+        """Limit large provider text fields before returning them to the agent."""
+        if value in (None, ""):
+            return None
+
+        text = str(value).strip()
+
+        if len(text) > max_chars:
+            return text[:max_chars] + "\n...[TRUNCATED FOR TOKEN LIMITS]"
+
+        return text
 
     def _tracking_payload(self, awb: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """GET the documented v4 tracking endpoint -> (order/data dict, scans list) or error."""
@@ -379,7 +428,11 @@ class ShadowfaxConnector:
         raw_status = data.get("status") or data.get("current_status") or "UNKNOWN"
         norm_status = self.map_status(raw_status)
 
-        tracking_history = [self._parse_event(s) for s in scans if isinstance(s, dict)]
+        tracking_history = [
+            self._parse_event(scan)
+            for scan in scans[-self.MAX_TRACKING_EVENTS:]
+            if isinstance(scan, dict)
+        ]
 
         latest_event = None
         if tracking_history:
@@ -479,7 +532,11 @@ class ShadowfaxConnector:
         raw_status = data.get("pickup_status") or data.get("status") or "UNKNOWN"
         norm_status = self.map_status(raw_status)
 
-        tracking_history = [self._parse_event(s) for s in scans if isinstance(s, dict)]
+        tracking_history = [
+            self._parse_event(scan)
+            for scan in scans[-self.MAX_TRACKING_EVENTS:]
+            if isinstance(scan, dict)
+        ]
 
         latest_event = None
         if tracking_history:

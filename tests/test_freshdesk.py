@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import os
+import sys 
 import types
 import unittest
 from contextlib import redirect_stdout
@@ -57,20 +58,92 @@ class FakeFreshdesk:
         self.routes = routes
         self.calls = []
 
-    def __call__(self, method=None, url=None, params=None, json=None, auth=None, **_):
+    @staticmethod
+    def _client_auth(client, request_auth):
+        """
+        Freshdesk auth may be supplied per request or configured on the
+        persistent httpx.Client. Normalize it to (api_key, 'X') for tests.
+        """
+        if request_auth is not None:
+            return request_auth
+
+        auth = getattr(client, "auth", None)
+
+        if auth is None:
+            return None
+
+        # httpx.BasicAuth stores a prebuilt Basic authorization header.
+        auth_header = getattr(auth, "_auth_header", b"")
+
+        if isinstance(auth_header, bytes):
+            auth_header = auth_header.decode()
+
+        if isinstance(auth_header, str) and auth_header.startswith("Basic "):
+            encoded = auth_header.split(" ", 1)[1]
+            decoded = base64.b64decode(encoded).decode()
+            username, password = decoded.split(":", 1)
+            return (username, password)
+
+        return auth
+
+    def __call__(
+        self,
+        client,
+        method=None,
+        url=None,
+        params=None,
+        json=None,
+        auth=None,
+        **_,
+    ):
         host, path = url.split("://", 1)[1].split("/api/v2/", 1)
-        self.calls.append({"method": method, "host": host, "path": path, "params": dict(params or {}), "json": json, "auth": auth})
+
+        effective_auth = self._client_auth(
+            client,
+            auth,
+        )
+
+        self.calls.append(
+            {
+                "method": method,
+                "host": host,
+                "path": path,
+                "params": dict(params or {}),
+                "json": json,
+                "auth": effective_auth,
+            }
+        )
+
         for route_method, route_path, predicate, response in self.routes:
-            if route_method == method and route_path == path and (predicate is None or predicate(params or {})):
-                result = response() if isinstance(response, types.FunctionType) else response
+            if (
+                route_method == method
+                and route_path == path
+                and (predicate is None or predicate(params or {}))
+            ):
+                result = (
+                    response()
+                    if isinstance(response, types.FunctionType)
+                    else response
+                )
+
                 if isinstance(result, Exception):
                     raise result
+
                 return result
-        return _resp(404, {"code": "not_found"})
+
+        return _resp(
+            404,
+            {
+                "code": "not_found",
+            },
+        )
 
     def by_method(self, method):
-        return [c for c in self.calls if c["method"] == method]
-
+        return [
+            call
+            for call in self.calls
+            if call["method"] == method
+        ]
 
 class FreshdeskFixture(unittest.TestCase):
 
@@ -92,14 +165,45 @@ class FreshdeskFixture(unittest.TestCase):
                 execute_db(f"DELETE FROM {table} WHERE {column} = ?", (tenant,))
         cls.env_patch.stop()
 
+
+
+    def setUp(self):
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so redirect it to
+        # the valid active stdout stream for each test.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
+
     def fake(self, routes):
         fake = FakeFreshdesk(routes)
-        for target in (patch("httpx.Client.request", side_effect=fake),
-                       patch("integrations.providers.freshdesk.time.sleep")):
+        original_request = httpx.Client.request
+
+        def transport(client, method, url, *args, **kwargs):
+            if ".freshdesk.com/api/v2/" in str(url):
+                return fake(
+                    client,
+                    method=method,
+                    url=str(url),
+                    **kwargs,
+                )
+
+            return original_request(
+                client,
+                method,
+                url,
+                *args,
+                **kwargs,
+            )
+
+        for target in (
+            patch.object(httpx.Client, "request", transport),
+            patch("integrations.providers.freshdesk.time.sleep"),
+        ):
             target.start()
             self.addCleanup(target.stop)
-        return fake
 
+        return fake
     CONTACT_ROUTE = ("GET", "contacts", lambda p: p.get("email") == EMAIL, _resp(200, [CONTACT]))
     ME = CustomerIdentity(email=EMAIL)
 
@@ -114,6 +218,21 @@ class ReadCapabilityTest(FreshdeskFixture):
         fake = self.fake([("GET", "ticket_fields", None, _resp(200, [{"name": "subject"}, {"name": "status"}]))])
         self.assertEqual(gateway.helpdesk_verify_credentials(TENANT_A), {"ok": True, "ticket_field_count": 2})
         self.assertEqual((fake.calls[0]["host"], fake.calls[0]["auth"]), ("acme.freshdesk.com", (KEY_A, "X")))
+
+
+    def test_http_client_reused_and_closed(self):
+        connector = direct()
+
+        first_client = connector._get_client()
+        second_client = connector._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        connector.close()
+
+        self.assertIsNone(connector._client)
+        self.assertTrue(first_client.is_closed)
 
     def test_02_get_contact_exact_match_only(self):
         self.fake([("GET", "contacts", None, _resp(200, [{**CONTACT, "email": "alice.other@example.com"}]))])
@@ -159,6 +278,67 @@ class ReadCapabilityTest(FreshdeskFixture):
         self.assertNotIn("VIP", json.dumps(result))
         self.assertNotIn("from_email", json.dumps(result))
         self.assertEqual(fake.calls[-1]["params"], {"include": "conversations"})
+
+
+
+    def test_large_ticket_conversations_are_truncated_and_limited(self):
+        long_description = "A" * 5000
+        long_message = "B" * 3000
+
+        conversations = [
+            {
+                "id": index,
+                "body_text": f"Conversation {index}: {long_message}",
+                "private": False,
+                "incoming": True,
+                "created_at": "2026-09-20T10:00:00Z",
+            }
+            for index in range(15)
+        ]
+
+        fake = self.fake(
+            [
+                (
+                    "GET",
+                    "tickets/12",
+                    lambda params: params.get("include") == "conversations",
+                    _resp(
+                        200,
+                        ticket(
+                            12,
+                            description_text=long_description,
+                            conversations=conversations,
+                        ),
+                    ),
+                )
+            ]
+        )
+
+        result = direct().get_ticket_conversations(
+            12,
+            max_messages=999,
+        )
+
+        self.assertEqual(
+            len(result["conversations"]),
+            10,
+        )
+
+        self.assertLessEqual(
+            len(result["description_text"]),
+            2050,
+        )
+
+        for conversation in result["conversations"]:
+            self.assertLessEqual(
+                len(conversation["body_text"]),
+                2050,
+            )
+
+        self.assertEqual(
+            fake.calls[0]["params"],
+            {"include": "conversations"},
+        )
 
     def test_ticket_fields(self):
         self.fake([("GET", "ticket_fields", None, _resp(200, [{"name": "priority", "label": "Priority", "type": "default_priority",
@@ -278,6 +458,24 @@ class ErrorHandlingTest(FreshdeskFixture):
         fake = self.fake([("POST", "tickets/12/notes", None, httpx.ReadTimeout("slow"))])
         self.assertEqual(direct().add_internal_note(12, "note text")["code"], "PROVIDER_TIMEOUT")
         self.assertEqual(len(fake.calls), 1)
+
+    def test_malformed_or_empty_200_response_is_invalid(self):
+        malformed = MagicMock()
+        malformed.status_code = 200
+        malformed.headers = {}
+        malformed.json.side_effect = ValueError("not valid json")
+
+        result, _ = self._get(malformed)
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_INVALID_RESPONSE",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            200,
+        )
 
     def test_validation_error_returns_field_names_only(self):
         self.fake([("POST", "tickets", None, _resp(400, {"errors": [{"field": "email", "message": "It should be a valid email", "code": "invalid_value"}]}))])

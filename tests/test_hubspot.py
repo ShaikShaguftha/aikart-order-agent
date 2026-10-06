@@ -6,6 +6,7 @@ prove read-only behaviour, the exact search request shapes and that the token ne
 import io
 import json
 import os
+import sys
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
@@ -54,21 +55,69 @@ class FakeHubSpot:
         self.calls, self.queue = [], []
         self.search_results = [CONTACT]
 
-    def __call__(self, method=None, url=None, params=None, json=None, headers=None, **_):
-        self.calls.append({"method": method, "url": url, "params": dict(params or {}), "json": json,
-                           "auth": (headers or {}).get("Authorization")})
+    def __call__(
+        self,
+        client,
+        method=None,
+        url=None,
+        params=None,
+        json=None,
+        headers=None,
+        **_,
+    ):
+        """
+        Supports both the old request-level-header implementation and the
+        improved persistent-httpx-client implementation where auth is stored
+        in client.headers.
+        """
+        effective_headers = headers or client.headers
+
+        self.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "params": dict(params or {}),
+                "json": json,
+                "auth": effective_headers.get("Authorization"),
+            }
+        )
+
         if self.queue:
             item = self.queue.pop(0)
+
             if isinstance(item, Exception):
                 raise item
+
             return item
+
         if method == "POST" and url == f"{OBJ}/contacts/search":
-            return _resp(200, {"total": len(self.search_results), "results": self.search_results})
-        records = {f"{OBJ}/contacts/101": CONTACT, f"{OBJ}/contacts/rahul@gmail.com": CONTACT,
-                   f"{OBJ}/companies/202": COMPANY, f"{OBJ}/deals/303": DEAL, f"{OBJ}/tickets/404": TICKET}
+            return _resp(
+                200,
+                {
+                    "total": len(self.search_results),
+                    "results": self.search_results,
+                },
+            )
+
+        records = {
+            f"{OBJ}/contacts/101": CONTACT,
+            f"{OBJ}/contacts/rahul@gmail.com": CONTACT,
+            f"{OBJ}/companies/202": COMPANY,
+            f"{OBJ}/deals/303": DEAL,
+            f"{OBJ}/tickets/404": TICKET,
+        }
+
         if method == "GET" and url in records:
             return _resp(200, records[url])
-        return _resp(404, {"status": "error", "message": "resource not found", "category": "OBJECT_NOT_FOUND"})
+
+        return _resp(
+            404,
+            {
+                "status": "error",
+                "message": "resource not found",
+                "category": "OBJECT_NOT_FOUND",
+            },
+        )
 
 
 class HubSpotFixture(unittest.TestCase):
@@ -81,18 +130,46 @@ class HubSpotFixture(unittest.TestCase):
         env = patch.dict(os.environ, ENV)
         env.start()
         self.addCleanup(env.stop)
+
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging uses sys.__stdout__, so redirect it to the
+        # valid active stdout stream during every test.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
+
         self.fake = FakeHubSpot()
-        original = httpx.Client.request
+        original_request = httpx.Client.request
 
         def transport(client, method, url, *args, **kwargs):
             if "hubapi.com" in str(url):
-                return self.fake(method=method, url=str(url), **kwargs)
-            return original(client, method, url, *args, **kwargs)
+                return self.fake(
+                    client,
+                    method=method,
+                    url=str(url),
+                    **kwargs,
+                )
 
-        for target in (patch.object(httpx.Client, "request", transport), patch("integrations.providers.hubspot.time.sleep")):
+            return original_request(
+                client,
+                method,
+                url,
+                *args,
+                **kwargs,
+            )
+
+        for target in (
+            patch.object(httpx.Client, "request", transport),
+            patch("integrations.providers.hubspot.time.sleep"),
+        ):
             target.start()
             self.addCleanup(target.stop)
-        self.hs = HubSpotConnector(TOKEN, retry_backoff=0)
+
+        self.hs = HubSpotConnector(
+            TOKEN,
+            timeout=2.0,
+            retry_backoff=0,
+        )
 
 
 class ReadTest(HubSpotFixture):
@@ -102,6 +179,18 @@ class ReadTest(HubSpotFixture):
         call = self.fake.calls[0]
         self.assertEqual(call["auth"], f"Bearer {TOKEN}")
         self.assertEqual((call["method"], call["url"]), ("GET", f"{OBJ}/contacts/101"))
+
+    def test_http_client_reused_and_closed(self):
+        first_client = self.hs._get_client()
+        second_client = self.hs._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        self.hs.close()
+
+        self.assertIsNone(self.hs._client)
+        self.assertTrue(first_client.is_closed)
 
     def test_02_get_contact_success(self):
         self.assertEqual(self.hs.get_contact("101"), {
@@ -143,6 +232,49 @@ class ReadTest(HubSpotFixture):
         self.assertEqual(self.hs.search_contacts(name="Nobody")["contacts"], [])
         self.assertEqual(self.hs.search_contacts(email="nobody@example.com"), {"contacts": [], "count": 0, "searched_by": "email"})
 
+
+
+    def test_large_contact_search_is_limited_to_ten_results(self):
+        large_results = []
+
+        for index in range(15):
+            large_results.append(
+                {
+                    "id": str(1000 + index),
+                    "properties": {
+                        "firstname": f"Customer{index}",
+                        "lastname": "Test",
+                        "email": f"customer{index}@example.com",
+                        "phone": None,
+                        "mobilephone": None,
+                        "company": None,
+                        "associatedcompanyid": None,
+                        "createdate": "2026-09-01T10:00:00Z",
+                    },
+                }
+            )
+
+        self.fake.queue = [
+            _resp(
+                200,
+                {
+                    "results": large_results,
+                    "paging": {
+                        "next": {
+                            "after": "10",
+                        }
+                    },
+                },
+            )
+        ]
+
+        result = self.hs.search_contacts(
+            name="Rahul",
+        )
+
+        self.assertEqual(result["count"], 10)
+        self.assertEqual(len(result["contacts"]), 10)
+        self.assertTrue(result["more_records"])
     def test_08_get_company(self):
         self.assertEqual(self.hs.get_company("202"), {"id": "202", "name": "Acme Pvt Ltd", "website": "acme.example",
                                                       "phone": "+91 22 4000 0000", "provider": "HUBSPOT"})
@@ -184,6 +316,28 @@ class ErrorTest(HubSpotFixture):
         self.assertEqual((result["code"], result["error"], result["reconnect_required"]),
                          ("PROVIDER_AUTH_FAILED", "HubSpot authentication failed. Reconnect required.", True))
 
+    def test_11b_400_returns_validation_error(self):
+        result = self._get(
+            _resp(
+                400,
+                {
+                    "status": "error",
+                    "category": "VALIDATION_ERROR",
+                    "message": "Invalid request",
+                },
+            )
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_VALIDATION_FAILED",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            400,
+        )
+
     def test_12_403(self):
         result = self._get(_resp(403, {"status": "error", "category": "MISSING_SCOPES"}))
         self.assertEqual((result["code"], result["error"]),
@@ -211,6 +365,29 @@ class ErrorTest(HubSpotFixture):
         self.fake.queue = [_resp(200, {"results": "nope"})]
         self.assertEqual(self.hs.search_contacts(name="Rahul")["code"], "PROVIDER_INVALID_RESPONSE")
         self.assertEqual(self._get(_resp(404, bad_json=True))["code"], "PROVIDER_API_UNAVAILABLE")
+
+
+    def test_16b_empty_200_response_is_invalid(self):
+        """
+        A 200 response with no valid JSON body must be controlled and must
+        never be treated as a valid HubSpot CRM record.
+        """
+        result = self._get(
+            _resp(
+                200,
+                bad_json=True,
+            )
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_INVALID_RESPONSE",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            200,
+        )
 
     def test_read_only_no_mutation_possible(self):
         for method in ("DELETE", "PATCH", "PUT"):
