@@ -39,8 +39,13 @@ PING_BODY = re.compile(rb"^webhook_id=\d+$")
 
 
 def _log(msg: str) -> None:
-    sys.__stdout__.write(f"{msg}\n")
-    sys.__stdout__.flush()
+    try:
+        stream = sys.stdout or sys.__stdout__
+        if stream is not None:
+            stream.write(f"{msg}\n")
+            stream.flush()
+    except Exception:
+        pass
 
 
 def _normalize_source(url: Optional[str]) -> str:

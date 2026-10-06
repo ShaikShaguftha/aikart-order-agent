@@ -43,10 +43,15 @@ from integrations.support_workflow import (
 )
 
 
-def log_gateway(msg: str):
-    sys.__stdout__.write(f"{msg}\n")
-    sys.__stdout__.flush()
-
+def log_gateway(msg: str) -> None:
+    """Best-effort gateway logging that never breaks request handling."""
+    try:
+        stream = sys.stdout or sys.__stdout__
+        if stream is not None:
+            stream.write(f"{msg}\n")
+            stream.flush()
+    except Exception:
+        pass
 
 class IntegrationGateway:
     """

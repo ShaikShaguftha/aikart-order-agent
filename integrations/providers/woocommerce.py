@@ -306,7 +306,10 @@ class WooCommerceConnector(BaseConnector):
                 last_error = self._error("PROVIDER_ERROR")
 
             if attempt < attempts:
-                time.sleep(self._retry_delay(attempt, response))
+                try:
+                    time.sleep(self._retry_delay(attempt, response))
+                except Exception:
+                    time.sleep(0.5)
 
         return last_error
 
@@ -736,7 +739,12 @@ class WooCommerceConnector(BaseConnector):
         """Stock levels for a product, including each variation of variable products."""
         product = self.get_product(product_query, company_id)
         if "error" in product:
-            return product
+            return {
+                "error": product["error"],
+                "variants": [],
+                "provider": self.provider_name,
+            }
+
         inventory = {
             "product_id": product["product_id"],
             "name": product["name"],
@@ -745,27 +753,47 @@ class WooCommerceConnector(BaseConnector):
             "variants": [],
             "provider": self.provider_name,
         }
-        if product.get("type") == "variable":
-            variations = self._execute_request(
-                "GET", f"products/{product['product_id']}/variations", params={"per_page": 100}
-            )
-            if isinstance(variations, dict) and "error" in variations:
-                return variations
-            inventory["variants"] = [
+
+        if product.get("type") != "variable":
+            return inventory
+
+        variations = self._execute_request(
+            "GET",
+            f"products/{product['product_id']}/variations",
+            params={"per_page": 100},
+        )
+
+        if isinstance(variations, dict) and "error" in variations:
+            return inventory
+
+        if isinstance(variations, dict):
+            variations = variations.get("variations") or variations.get("data") or []
+
+        if not isinstance(variations, list):
+            return inventory
+
+        variants = []
+        for variation in variations[: getattr(self, "MAX_VARIANT_RESULTS", 100)]:
+            if not isinstance(variation, dict):
+                continue
+
+            attributes = {}
+            for attribute in variation.get("attributes") or []:
+                if isinstance(attribute, dict):
+                    attributes[attribute.get("name")] = attribute.get("option")
+
+            variants.append(
                 {
-                    "variant_id": str(v.get("id")),
-                    "attributes": {a.get("name"): a.get("option") for a in v.get("attributes") or []},
-                    "sku": v.get("sku"),
-                    "stock_status": v.get("stock_status"),
-                    "stock_quantity": v.get("stock_quantity"),
+                    "variant_id": str(variation.get("id")),
+                    "attributes": attributes,
+                    "sku": variation.get("sku"),
+                    "stock_status": variation.get("stock_status"),
+                    "stock_quantity": variation.get("stock_quantity"),
                 }
-                
-                for v in (
-                    variations[:self.MAX_VARIANT_RESULTS]
-                    if isinstance(variations, list)
-                    else []
-                )
-            ]
+            )
+
+        inventory["variants"] = variants
+        return inventory
     def cancel_order(
         self, order_id: str, company_id: str, reason: Optional[str] = "CUSTOMER"
     ) -> Dict[str, Any]:
