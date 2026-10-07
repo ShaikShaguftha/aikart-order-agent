@@ -86,6 +86,20 @@ def init_db() -> None:
         )
     """)
 
+    # 7. Book-a-Demo Requests Table (landing page form submissions)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS demo_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            store_url TEXT NOT NULL,
+            platform TEXT,
+            volume TEXT,
+            pain_point TEXT,
+            emailed INTEGER NOT NULL DEFAULT 0,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # Seed Sample Data if empty
     cursor.execute("SELECT COUNT(*) FROM companies")
     if cursor.fetchone()[0] == 0:

@@ -1,13 +1,15 @@
 import logging
 import os
+import smtplib
 import sys
 from contextlib import asynccontextmanager
+from email.message import EmailMessage
 from typing import Dict, List, Optional
 from uuid import uuid4
 
 from agent import process_query
 from database import execute_db, init_db, query_db
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -113,6 +115,75 @@ def chat_with_agent(
     except Exception as e:
         log_terminal(f"[SERVER ERROR]: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class DemoRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    storeUrl: str = Field(min_length=1, max_length=500)
+    platform: List[str] = Field(default_factory=list, max_length=20)
+    volume: str = Field(default="", max_length=50)
+    painPoint: str = Field(default="", max_length=100)
+
+
+DEMO_NOTIFY_TO = os.getenv("DEMO_NOTIFY_TO", "support@aikart.co")
+
+
+def send_demo_email(request_id: int, payload: DemoRequest) -> None:
+    """Emails a Book-a-Demo submission to the team via SMTP.
+
+    Needs SMTP_HOST, SMTP_USER and SMTP_PASSWORD in the environment (SMTP_PORT
+    defaults to 587 / STARTTLS). Without them the request is still saved in
+    demo_requests, just not emailed.
+    """
+    host = os.getenv("SMTP_HOST")
+    user = os.getenv("SMTP_USER")
+    password = os.getenv("SMTP_PASSWORD")
+    if not (host and user and password):
+        log_terminal(f"[BOOK DEMO]: SMTP not configured - request #{request_id} saved to DB only.")
+        return
+
+    msg = EmailMessage()
+    msg["Subject"] = f"New Book a Demo request - {payload.email}"
+    msg["From"] = os.getenv("SMTP_FROM", user)
+    msg["To"] = DEMO_NOTIFY_TO
+    msg["Reply-To"] = payload.email
+    msg.set_content(
+        "New Book a Demo request from the Luintix landing page.\n\n"
+        f"Email: {payload.email}\n"
+        f"Store URL: {payload.storeUrl}\n"
+        f"Platform: {', '.join(payload.platform) or '-'}\n"
+        f"Monthly orders: {payload.volume or '-'}\n"
+        f"Biggest support headache: {payload.painPoint or '-'}\n"
+    )
+
+    try:
+        with smtplib.SMTP(host, int(os.getenv("SMTP_PORT", "587")), timeout=20) as smtp:
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
+        execute_db("UPDATE demo_requests SET emailed = 1 WHERE id = ?", (request_id,))
+        log_terminal(f"[BOOK DEMO]: Request #{request_id} emailed to {DEMO_NOTIFY_TO}.")
+    except Exception as e:
+        log_terminal(f"[BOOK DEMO EMAIL ERROR]: Request #{request_id}: {e}")
+
+
+@app.post("/api/book-demo", tags=["Landing Page"])
+def book_demo(payload: DemoRequest, background_tasks: BackgroundTasks):
+    """Stores a Book-a-Demo form submission and emails it to the team in the background."""
+    request_id = execute_db(
+        "INSERT INTO demo_requests (email, store_url, platform, volume, pain_point) VALUES (?, ?, ?, ?, ?)",
+        (payload.email, payload.storeUrl, ", ".join(payload.platform), payload.volume, payload.painPoint),
+    )
+    log_terminal(f"[BOOK DEMO]: Saved request #{request_id} from {payload.email}")
+    background_tasks.add_task(send_demo_email, request_id, payload)
+    return {"ok": True, "id": request_id}
+
+
+@app.get("/api/demo-requests", tags=["Database Views"])
+def get_demo_requests():
+    """Returns stored Book-a-Demo submissions, newest first."""
+    rows = query_db("SELECT * FROM demo_requests ORDER BY id DESC")
+    return {"total": len(rows), "requests": rows}
 
 
 @app.get("/api/orders/{order_id}", tags=["Database Views"])

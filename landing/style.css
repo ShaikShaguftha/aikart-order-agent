@@ -160,7 +160,7 @@ img, svg { display: block; }
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
 }
 
 .hero-badge-icon {
@@ -228,10 +228,10 @@ img, svg { display: block; }
     font-family: var(--font-heading);
     font-weight: 700;
     font-size: 3rem;
-    line-height: 1.15;
+    line-height: 1.05;
     color: #ffffff;
     letter-spacing: -0.01em;
-    margin-bottom: 22px;
+    margin-bottom: 14px;
 }
 
 .grad-text {
@@ -268,7 +268,7 @@ img, svg { display: block; }
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin-bottom: 36px;
+    margin-bottom: 20px;
 }
 
 /* Same frosted-glass recipe as the chat widget panel and the demo-list

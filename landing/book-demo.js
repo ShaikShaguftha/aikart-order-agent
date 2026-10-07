@@ -1,6 +1,7 @@
 // "Book a Demo" multi-step form: one question per screen, thin progress
-// bar up top, Back on every step but the first. No backend exists yet, so
-// the final submit just logs the collected answers to the console.
+// bar up top, Back on every step but the first. Submit shows a small glass
+// toast with an animated tick and POSTs the answers to /api/book-demo
+// (server.py saves them and emails support@aikart.co).
 (function () {
     'use strict';
 
@@ -8,7 +9,7 @@
     var steps = Array.prototype.slice.call(form.querySelectorAll('.demo-step'));
     var progressBar = document.getElementById('demoProgressBar');
     var progressWrap = document.getElementById('demoProgress');
-    var totalSteps = steps.length - 1; // last step is the outcome screen, not part of progress
+    var totalSteps = steps.length;
     var currentIndex = 0;
 
     function stepNumber(step) {
@@ -164,6 +165,84 @@
         });
     }
 
+    var SUCCESS_MSG = 'Your mail has been sent to Luintix, and our team will connect with you shortly.';
+    var TOAST_MS = 3000;
+    var PENDING_KEY = 'luintixPendingDemoRequests';
+
+    var toast = document.createElement('div');
+    toast.className = 'demo-toast';
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    toast.innerHTML =
+        '<div class="demo-toast-tick" aria-hidden="true">' +
+            '<span class="demo-toast-ring"></span>' +
+            '<span class="demo-toast-circle"></span>' +
+            '<svg viewBox="0 0 64 64" fill="none"><path d="M21 33l7.5 7.5L44 25" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        '</div>' +
+        '<p class="demo-toast-msg"></p>';
+    var toastBackdrop = document.createElement('div');
+    toastBackdrop.className = 'demo-toast-backdrop';
+    document.body.appendChild(toastBackdrop);
+    document.body.appendChild(toast);
+    var toastMsg = toast.querySelector('.demo-toast-msg');
+    var toastTimer;
+
+    function hideToast() {
+        clearTimeout(toastTimer);
+        toast.classList.remove('is-visible');
+        toastBackdrop.classList.remove('is-visible');
+    }
+
+    // Click anywhere on the blurred backdrop to dismiss early.
+    toastBackdrop.addEventListener('click', hideToast);
+
+    function showToast(message) {
+        clearTimeout(toastTimer);
+        toastMsg.textContent = message;
+        // Drop and re-add is-visible (with a reflow between) so the tick
+        // animation replays on every submit.
+        toast.classList.remove('is-visible');
+        void toast.offsetWidth;
+        toast.classList.add('is-visible');
+        toastBackdrop.classList.add('is-visible');
+        toastTimer = setTimeout(hideToast, TOAST_MS);
+    }
+
+    // Submissions that couldn't reach /api/book-demo (server down, offline)
+    // are kept in this browser and retried on the next page load, so the
+    // visitor always gets the confirmation and the lead isn't dropped.
+    function readPending() {
+        try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch (e) { return []; }
+    }
+
+    function writePending(list) {
+        try {
+            if (list.length) localStorage.setItem(PENDING_KEY, JSON.stringify(list));
+            else localStorage.removeItem(PENDING_KEY);
+        } catch (e) { /* storage blocked - nothing more we can do */ }
+    }
+
+    function sendRequest(answers) {
+        return fetch('/api/book-demo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(answers)
+        }).then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+        });
+    }
+
+    function retryPending() {
+        var pending = readPending();
+        if (!pending.length) return;
+        writePending([]);
+        pending.forEach(function (answers) {
+            sendRequest(answers).catch(function () {
+                writePending(readPending().concat([answers]));
+            });
+        });
+    }
+
     form.addEventListener('submit', function (e) {
         e.preventDefault();
 
@@ -171,30 +250,25 @@
         var answers = {
             email: (data.get('email') || '').trim(),
             storeUrl: (data.get('storeUrl') || '').trim(),
-            platform: data.getAll('platform'), // multi-select now
+            platform: data.getAll('platform').filter(function (p) { return p !== 'Other'; }),
             volume: data.get('volume') || '',
             painPoint: data.get('painPoint') || ''
         };
 
-        // No backend endpoint exists yet - log the collected answers.
-        console.log('Book a Demo submission:', answers);
+        sendRequest(answers).catch(function (err) {
+            console.error('Book a Demo submit failed, will retry on next visit:', err);
+            writePending(readPending().concat([answers]));
+        });
 
-        showStep(steps.length - 1);
+        // Close the modal (index.html) or reset the standalone page
+        // (book-demo.html), then confirm with the toast on top.
+        var modalCloseBtn = document.getElementById('bookDemoCloseBtn');
+        if (modalCloseBtn) modalCloseBtn.click();
+        window.luintixBookDemo.reset();
+        showToast(SUCCESS_MSG);
     });
 
-    var chatNowBtn = document.getElementById('chatNowBtn');
-    if (chatNowBtn) {
-        chatNowBtn.addEventListener('click', function () {
-            // When this runs inside the index.html modal, its overlay
-            // (z-index 1000) sits above the chat widget (z-index 999), so
-            // the chat panel would open invisibly behind it unless the
-            // modal closes first.
-            var modalCloseBtn = document.getElementById('bookDemoCloseBtn');
-            if (modalCloseBtn) modalCloseBtn.click();
-
-            if (window.luintixChat) window.luintixChat.open();
-        });
-    }
+    retryPending();
 
     // Public hook so book-demo-modal.js can start fresh every time the
     // modal is opened, instead of resuming wherever it was last left.
