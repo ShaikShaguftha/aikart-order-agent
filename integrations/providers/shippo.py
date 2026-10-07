@@ -1,3 +1,4 @@
+
 """
 Shippo shipping/tracking connector (https://api.goshippo.com/).
 
@@ -141,14 +142,7 @@ class ShippoConnector:
     def _get_client(self) -> httpx.Client:
         """Reuse persistent HTTP connection pool across all requests."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.Client(
-                timeout=self.timeout,
-                headers={
-                    "Authorization": f"ShippoToken {self.api_token}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Luintix-Shippo-Connector/1.0",
-                },
-            )
+            self._client = httpx.Client(timeout=self.timeout)
         return self._client
 
     def __enter__(self):
@@ -208,6 +202,11 @@ class ShippoConnector:
                     url=f"{BASE_URL}/{path}",
                     params=params,
                     json=json_data,
+                    headers={
+                        "Authorization": f"ShippoToken {self.api_token}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Luintix-Shippo-Connector/1.0",
+                    },
                 )
                 status = response.status_code
                 log_provider_call(self.provider_name, f"{method} {route}", status)
@@ -239,6 +238,7 @@ class ShippoConnector:
                 last_error = self._error("PROVIDER_TIMEOUT")
             except httpx.NetworkError:
                 last_error = self._error("PROVIDER_UNREACHABLE")
+
             except Exception as e:
                 logger.warning(f"[SHIPPO] request failed: {self._sanitize_error(type(e).__name__)}")
                 return self._error("PROVIDER_ERROR")
@@ -354,10 +354,14 @@ class ShippoConnector:
 
     def get_tracking(self, carrier_slug: str, tracking_number: str) -> Dict[str, Any]:
         """GET /tracks/{carrier}/{tracking_number}, normalized (status, ETA, location, history)."""
+        
         if not carrier_slug or not SLUG_PATTERN.match(carrier_slug):
             return {"error": "Unknown carrier for tracking.", "code": "INVALID_CARRIER"}
         if not valid_tracking_number(tracking_number):
-            return {"error": "That is not a valid tracking number.", "code": "INVALID_TRACKING_NUMBER"}
+            return {
+                "error": "That is not a valid tracking number.",
+                "code": "INVALID_TRACKING_NUMBER",
+            }
         res = self._request("GET", f"tracks/{quote(carrier_slug)}/{quote(tracking_number)}",
                             "tracks/{carrier}/{tracking_number}")
         if isinstance(res, dict) and "error" in res:

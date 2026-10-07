@@ -278,7 +278,7 @@ class ShadowfaxConnector:
     def _backoff(self, attempt: int, response: Optional[httpx.Response]) -> float:
         if response is not None and response.headers.get("Retry-After"):
             try:
-                return min(float(response.headers["Retry-After"]), self.MAX_RETRY_AFTER_SECONDS)
+                return min(float(response.headers.get("Retry-After")), self.MAX_RETRY_AFTER_SECONDS)
             except (TypeError, ValueError):
                 pass
         base = self.retry_backoff * (2 ** (attempt - 1))
@@ -294,16 +294,17 @@ class ShadowfaxConnector:
             response = None
             try:
                 url = build_url(self.base_url, path)
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    url = build_url(self.base_url, path)
-                    client = self._get_client()
-                    
-                    response = client.request(
-                        method="GET",
-                        url=url,
-                        params=params,
-                    )
-                    
+                client = self._get_client()
+                response = client.request(
+                    method="GET",
+                    url=url,
+                    params=params,
+                    headers={
+                        **self._auth_headers(),
+                        "Accept": "application/json",
+                        "User-Agent": "Luintix-Shadowfax-Connector/1.0",
+                    },
+                )
                 status = response.status_code
                 log_provider_call(self.provider_name, f"GET {path}", status)
                 if status == 200:
@@ -313,12 +314,21 @@ class ShadowfaxConnector:
                         return self._error("PROVIDER_INVALID_RESPONSE", status)
                 if status == 400:
                     try:
-                        message = str((response.json() or {}).get("message") or "")
-                    except (ValueError, AttributeError):
-                        message = ""
-                    # Documented tracking error: 400 {"message": "Invalid AWB number"}.
-                    if "invalid awb" in message.casefold():
+                        body = response.json()
+                    except ValueError:
+                        body = None
+
+                    message = (
+                        str(body.get("message") or body.get("detail") or "")
+                        if isinstance(body, dict)
+                        else ""
+                    )
+
+                    # Only tracking requests interpret an invalid AWB as NOT_FOUND.
+                    if path.startswith("v4/clients/orders/") and "invalid awb" in message.casefold():
                         return self._error("NOT_FOUND", status)
+
+                    return self._error("PROVIDER_VALIDATION_FAILED", status)
                     return self._error("PROVIDER_VALIDATION_FAILED", status)
                 if status == 401:
                     return self._error("PROVIDER_AUTH_FAILED", status)
@@ -340,6 +350,7 @@ class ShadowfaxConnector:
                 last_error = self._error("PROVIDER_TIMEOUT")
             except httpx.TransportError:
                 last_error = self._error("PROVIDER_UNREACHABLE")
+
             except Exception as e:
                 logger.warning(f"[SHADOWFAX] request failed: {self._sanitize_error(type(e).__name__)}")
                 return self._error("PROVIDER_ERROR")
@@ -476,45 +487,86 @@ class ShadowfaxConnector:
         self, pickup_pincode: str, delivery_pincode: str, pickup_service: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Pickup -> delivery serviceability using the documented v1 endpoint, which answers
-        per pincode and per service:
-            GET {base}/v1/clients/serviceability/?service=<service>&pincodes=<pin>&page=1&count=10
-            -> [{"code": 560017, "services": ["Regular", "Surface"]}, ...]
-        Two read-only lookups: the pickup pincode for the pickup service (SHADOWFAX_PICKUP_SERVICE,
-        default seller_pickup) and the delivery pincode for customer_delivery. A pincode absent
-        from the response is not serviceable for that service.
+        Pickup -> delivery serviceability using two provider lookups:
+        one for pickup service and one for customer-delivery service.
         """
         if not valid_pincode(pickup_pincode) or not valid_pincode(delivery_pincode):
-            return {"error": "Pickup pincode and delivery pincode must be valid 6-digit pincodes.", "code": "INVALID_ARGUMENT"}
-        pickup_service = (pickup_service or os.getenv("SHADOWFAX_PICKUP_SERVICE") or DEFAULT_PICKUP_SERVICE).strip()
+            return {
+                "error": "Pickup pincode and delivery pincode must be valid 6-digit pincodes.",
+                "code": "INVALID_ARGUMENT",
+            }
+
+        pickup_service = (
+            pickup_service
+            or os.getenv("SHADOWFAX_PICKUP_SERVICE")
+            or DEFAULT_PICKUP_SERVICE
+        ).strip()
+
         if pickup_service not in PICKUP_SERVICES:
-            return {"error": f"Unsupported Shadowfax pickup service '{pickup_service}'.", "code": "INVALID_ARGUMENT"}
+            return {
+                "error": f"Unsupported Shadowfax pickup service '{pickup_service}'.",
+                "code": "INVALID_ARGUMENT",
+            }
 
         legs = {}
-        for leg, pincode, service in (("pickup", pickup_pincode.strip(), pickup_service),
-                                      ("delivery", delivery_pincode.strip(), DELIVERY_SERVICE)):
-            raw = self._get(SERVICEABILITY_PATH, {"service": service, "pincodes": pincode, "page": 1, "count": 10})
-            if isinstance(raw, dict) and "error" in raw and "code" in raw:
+
+        for leg, pincode, service in (
+            ("pickup", pickup_pincode.strip(), pickup_service),
+            ("delivery", delivery_pincode.strip(), DELIVERY_SERVICE),
+        ):
+            raw = self._get(
+                SERVICEABILITY_PATH,
+                {
+                    "service": service,
+                    "pincodes": pincode,
+                    "page": 1,
+                    "count": 10,
+                },
+            )
+            if isinstance(raw, dict) and raw.get("code"):
                 return raw
-            rows = raw if isinstance(raw, list) else next(
-                (raw[k] for k in ("results", "data") if isinstance(raw, dict) and isinstance(raw.get(k), list)), None)
-            if rows is None:
+
+            if isinstance(raw, list):
+                rows = raw
+            elif isinstance(raw, dict):
+                rows = raw.get("results")
+                if rows is None:
+                    rows = raw.get("data")
+            else:
                 return self._error("PROVIDER_INVALID_RESPONSE")
-            match = next((r for r in rows if isinstance(r, dict) and str(r.get("code")) == pincode), None)
+
+            if not isinstance(rows, list):
+                return self._error("PROVIDER_INVALID_RESPONSE")
+
+            match = next(
+                (
+                    row
+                    for row in rows
+                    if isinstance(row, dict) and str(row.get("code")) == pincode
+                ),
+                None,
+            )
+
             legs[leg] = {
                 "pincode": pincode,
                 "service": service,
                 "serviceable": match is not None,
-                "service_types": match.get("services") if match and isinstance(match.get("services"), list) else [],
+                "service_types": (
+                    match.get("services")
+                    if isinstance(match, dict) and isinstance(match.get("services"), list)
+                    else []
+                ),
             }
 
         return ShadowfaxServiceability(
             pickup_pincode=pickup_pincode.strip(),
             delivery_pincode=delivery_pincode.strip(),
-            serviceable=legs["pickup"]["serviceable"] and legs["delivery"]["serviceable"],
+            serviceable=bool(
+                legs["pickup"]["serviceable"]
+                and legs["delivery"]["serviceable"]
+            ),
             service_info=legs,
         ).model_dump()
-
     def track_reverse_pickup(self, reverse_awb: str) -> Dict[str, Any]:
         """
         Track a reverse pickup on Shadowfax using reverse AWB / identifier.
