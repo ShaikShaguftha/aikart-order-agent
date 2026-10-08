@@ -1,0 +1,54 @@
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid
+Traceback (most recent call last):
+  File "C:\Users\asus\aikart-order-agent\integrations\providers\woocommerce.py", line 255, in _execute_request
+    log_provider_call(self.provider_name, f"{method} {endpoint_clean}", status)
+  File "C:\Users\asus\aikart-order-agent\integrations\base.py", line 10, in log_provider_call
+    sys.__stdout__.write(
+OSError: [WinError 6] The handle is invalid

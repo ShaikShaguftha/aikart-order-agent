@@ -7,11 +7,16 @@ from integrations.models import CustomerIdentity
 
 def log_provider_call(provider: str, operation: str, http_status: Any) -> None:
     """Safe diagnostic line for every outbound provider API call (never logs credentials)."""
-    sys.__stdout__.write(
-        f"[PROVIDER] Provider: {provider} | Operation: {operation} | "
-        f"API request executed: YES | Provider HTTP status: {http_status}\n"
-    )
-    sys.__stdout__.flush()
+    try:
+        stream = sys.stdout or sys.__stdout__
+        if stream is not None:
+            stream.write(
+                f"[PROVIDER] Provider: {provider} | Operation: {operation} | "
+                f"API request executed: YES | Provider HTTP status: {http_status}\n"
+            )
+            stream.flush()
+    except Exception:
+        pass
 
 
 def log_provider_warning(provider: str, operation: str, message: str) -> None:

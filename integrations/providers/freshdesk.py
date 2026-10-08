@@ -61,6 +61,7 @@ class FreshdeskConnector:
         self.timeout = timeout
         self.retry_backoff = retry_backoff
         self.base_api_url = f"https://{self.subdomain}.freshdesk.com/api/v2" if self.subdomain else ""
+        self._client: Optional[httpx.Client] = None
 
     # ---- configuration -------------------------------------------------------------
 
@@ -83,6 +84,27 @@ class FreshdeskConnector:
     def credentials_configured(self) -> bool:
         return bool(self.api_key)
 
+    def _get_client(self) -> httpx.Client:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                headers={"Content-Type": "application/json", "User-Agent": "Luintix-Freshdesk-Connector/1.0"},
+                auth=(self.api_key, "X"),
+            )
+        return self._client
+
+    def close(self) -> None:
+        """Closes the underlying httpx.Client connection pool if open."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        
     def domain_configured(self) -> bool:
         return bool(self.subdomain)
 
@@ -140,15 +162,13 @@ class FreshdeskConnector:
             response = None
             retryable = False
             try:
-                with httpx.Client(timeout=self.timeout) as client:
-                    response = client.request(
-                        method=method,
-                        url=url,
-                        params=params,
-                        json=json_data,
-                        headers={"Content-Type": "application/json", "User-Agent": "Luintix-Freshdesk-Connector/1.0"},
-                        auth=(self.api_key, "X"),
-                    )
+                client = self._get_client()
+                response = client.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json_data,
+                )
                 status = response.status_code
                 log_provider_call(self.provider_name, operation, status)
 
@@ -179,7 +199,7 @@ class FreshdeskConnector:
                     return self._error("PROVIDER_ERROR", status)
             except httpx.TimeoutException:
                 last_error, retryable = self._error("PROVIDER_TIMEOUT"), idempotent
-            except httpx.TransportError:
+            except httpx.NetworkError:
                 last_error, retryable = self._error("PROVIDER_UNREACHABLE"), idempotent
             except Exception as e:
                 logger.warning(f"[FRESHDESK] request failed: {self._sanitize_error(type(e).__name__)}")
@@ -191,7 +211,15 @@ class FreshdeskConnector:
         return last_error
 
     # ---- normalization -------------------------------------------------------------
-
+    @staticmethod
+    def _truncate_text(text: Optional[str], max_chars: int = 2000) -> Optional[str]:
+        if not text:
+            return text
+        clean_text = text.strip()
+        if len(clean_text) > max_chars:
+            return clean_text[:max_chars] + "\n...[TRUNCATED FOR TOKEN LIMITS]"
+        return clean_text
+    
     @staticmethod
     def _valid_ticket_id(ticket_id: Any) -> Optional[int]:
         text = str(ticket_id).strip().lstrip("#")
@@ -227,12 +255,12 @@ class FreshdeskConnector:
             "provider": "FRESHDESK",
         }
 
-    @staticmethod
-    def _conversation(data: Dict[str, Any]) -> Dict[str, Any]:
+    @classmethod
+    def _conversation(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         # Addresses (from_email/to_emails/cc) are deliberately dropped.
         return {
             "conversation_id": str(data.get("id")),
-            "body_text": data.get("body_text"),
+            "body_text": cls._truncate_text(data.get("body_text")),
             "private": bool(data.get("private")),
             "from_customer": bool(data.get("incoming")),
             "created_at": data.get("created_at"),
@@ -337,20 +365,49 @@ class FreshdeskConnector:
         res = self._request("GET", f"tickets/{tid}")
         if "error" in res:
             return res
-        return {**self._ticket(res), "description_text": res.get("description_text")}
-
-    def get_ticket_conversations(self, ticket_id: Any) -> Dict[str, Any]:
+        return {**self._ticket(res), "description_text":self._truncate_text(res.get("description_text")),
+               }
+    def get_ticket_conversations(self, ticket_id: Any, max_messages: int = 10) -> Dict[str, Any]:
         """Ticket plus its conversations via GET /tickets/{id}?include=conversations."""
         tid = self._valid_ticket_id(ticket_id)
+
         if tid is None:
-            return {"error": "Ticket ID must be a positive number.", "code": "INVALID_TICKET_ID"}
-        res = self._request("GET", f"tickets/{tid}", params={"include": "conversations"})
+            return {
+                "error": "Ticket ID must be a positive number.",
+                "code": "INVALID_TICKET_ID",
+            }
+
+        res = self._request(
+            "GET",
+            f"tickets/{tid}",
+            params={"include": "conversations"},
+        )
+
         if "error" in res:
             return res
+
+        conversations = res.get("conversations") or []
+
+        if not isinstance(conversations, list):
+            return self._error("PROVIDER_INVALID_RESPONSE")
+
+        try:
+            message_limit = max(1, min(int(max_messages), 10))
+        except (TypeError, ValueError):
+            message_limit = 10
+
+        recent_conversations = conversations[-message_limit:]
+
         return {
             **self._ticket(res),
-            "description_text": res.get("description_text"),
-            "conversations": [self._conversation(c) for c in res.get("conversations") or []],
+            "description_text": self._truncate_text(
+                res.get("description_text")
+            ),
+            "conversations": [
+                self._conversation(conversation)
+                for conversation in recent_conversations
+                if isinstance(conversation, dict)
+            ],
         }
 
     # ---- WRITE capabilities --------------------------------------------------------

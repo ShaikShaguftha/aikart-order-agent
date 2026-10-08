@@ -7,6 +7,7 @@ access token never leaks.
 import io
 import json
 import os
+import sys
 import re
 import unittest
 from contextlib import redirect_stdout
@@ -71,32 +72,97 @@ class FakeSalesforce:
 
     @property
     def soql(self):
-        return [c["params"].get("q") for c in self.calls if c["params"].get("q")]
+        return [
+            call["params"].get("q")
+            for call in self.calls
+            if call["params"].get("q")
+        ]
 
-    def __call__(self, method=None, url=None, params=None, json=None, headers=None, **_):
-        self.calls.append({"method": method, "url": url, "params": dict(params or {}), "json": json,
-                           "auth": (headers or {}).get("Authorization")})
+    def __call__(
+        self,
+        client,
+        method=None,
+        url=None,
+        params=None,
+        json=None,
+        headers=None,
+        **_,
+    ):
+        effective_headers = headers or client.headers
+
+        self.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "params": dict(params or {}),
+                "json": json,
+                "auth": effective_headers.get("Authorization"),
+            }
+        )
+
         if self.queue:
             item = self.queue.pop(0)
+
             if isinstance(item, Exception):
                 raise item
-            return item
-        if method == "GET" and url == f"{INSTANCE}/services/data/":
-            return _resp(200, [{"label": "Winter '25", "url": "/services/data/v62.0", "version": "62.0"},
-                               {"label": "Summer '26", "url": "/services/data/v67.0", "version": "67.0"},
-                               {"label": "Spring '26", "url": "/services/data/v66.0", "version": "66.0"}])
-        if method != "GET" or not url.endswith("/query"):
-            return _resp(404, bad_json=True)
-        q = params["q"]
-        by_id = re.search(r"WHERE Id = '([A-Za-z0-9]+)'", q)
-        if by_id:  # like Salesforce: a 15-char ID matches, the record comes back with its 18-char Id
-            return _page([r for rid, r in BY_ID.items() if rid[:15] == by_id.group(1)[:15]])
-        if "CaseNumber IN" in q:
-            return _page([CASE] if "'00001026'" in q else [])
-        if "FROM Contact" in q:
-            return _page(self.search_results)
-        return _page([])
 
+            return item
+
+        if method == "GET" and url == f"{INSTANCE}/services/data/":
+            return _resp(
+                200,
+                [
+                    {
+                        "label": "Winter '25",
+                        "url": "/services/data/v62.0",
+                        "version": "62.0",
+                    },
+                    {
+                        "label": "Summer '26",
+                        "url": "/services/data/v67.0",
+                        "version": "67.0",
+                    },
+                    {
+                        "label": "Spring '26",
+                        "url": "/services/data/v66.0",
+                        "version": "66.0",
+                    },
+                ],
+            )
+
+        if method != "GET" or not url.endswith("/query"):
+            return _resp(
+                404,
+                bad_json=True,
+            )
+
+        query = params["q"]
+
+        by_id = re.search(
+            r"WHERE Id = '([A-Za-z0-9]+)'",
+            query,
+        )
+
+        if by_id:
+            return _page(
+                [
+                    record
+                    for record_id, record in BY_ID.items()
+                    if record_id[:15] == by_id.group(1)[:15]
+                ]
+            )
+
+        if "CaseNumber IN" in query:
+            return _page(
+                [CASE]
+                if "'00001026'" in query
+                else []
+            )
+
+        if "FROM Contact" in query:
+            return _page(self.search_results)
+
+        return _page([])
 
 class SalesforceFixture(unittest.TestCase):
 
@@ -105,6 +171,12 @@ class SalesforceFixture(unittest.TestCase):
         init_db()
 
     def setUp(self):
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so redirect it to
+        # the valid active stdout stream during each test.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
         env = patch.dict(os.environ, ENV)
         env.start()
         self.addCleanup(env.stop)
@@ -115,8 +187,20 @@ class SalesforceFixture(unittest.TestCase):
 
         def transport(client, method, url, *args, **kwargs):
             if "salesforce.com" in str(url) or "force.com" in str(url):
-                return self.fake(method=method, url=str(url), **kwargs)
-            return original(client, method, url, *args, **kwargs)
+                return self.fake(
+                    client,
+                    method=method,
+                    url=str(url),
+                    **kwargs,
+                )
+
+            return original(
+                client,
+                method,
+                url,
+                *args,
+                **kwargs,
+            )
 
         for target in (patch.object(httpx.Client, "request", transport),
                        patch("integrations.providers.salesforce.time.sleep")):
@@ -139,6 +223,19 @@ class ConfigTest(SalesforceFixture):
                     "https://acme.my.salesforce.com/services", "https://user:pw@acme.my.salesforce.com",
                     "https://acme.my.salesforce.com:8443", "https://acme.my.salesforce.com?x=1"):
             self.assertIsNone(normalize_instance_url(bad), bad)
+
+
+    def test_http_client_reused_and_closed(self):
+        first_client = self.sf._get_client()
+        second_client = self.sf._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        self.sf.close()
+
+        self.assertIsNone(self.sf._client)
+        self.assertTrue(first_client.is_closed)
 
     def test_02_credentials_missing(self):
         cases = {SalesforceConnector("", INSTANCE): "access token",
@@ -238,6 +335,50 @@ class ReadTest(SalesforceFixture):
         self.assertTrue(self.sf.search_contacts(name="Rahul")["more_records"])
 
 
+    def test_large_contact_search_is_limited_to_ten_results(self):
+        large_contacts = []
+
+        for index in range(15):
+            large_contacts.append(
+                {
+                    "Id": f"0035g00000TEST{index:03d}",
+                    "FirstName": f"Customer{index}",
+                    "LastName": "Test",
+                    "Email": f"customer{index}@example.com",
+                    "Phone": None,
+                    "MobilePhone": None,
+                    "AccountId": None,
+                    "Account": None,
+                    "CreatedDate": "2026-09-01T10:00:00.000+0000",
+                }
+            )
+
+        self.fake.queue = [
+            _page(
+                large_contacts,
+                done=False,
+            )
+        ]
+
+        result = self.sf.search_contacts(
+            name="Rahul",
+        )
+
+        self.assertEqual(
+            result["count"],
+            10,
+        )
+
+        self.assertEqual(
+            len(result["contacts"]),
+            10,
+        )
+
+        self.assertTrue(
+            result["more_records"],
+        )
+
+
 class ErrorTest(SalesforceFixture):
 
     def _get(self, *responses):
@@ -323,7 +464,7 @@ class ErrorTest(SalesforceFixture):
             self.assertEqual(self.sf._request(method, f"services/data/{VERSION}/sobjects/Contact")["code"], "NOT_SUPPORTED")
         self.assertEqual(self.fake.calls, [])
         for name in dir(SalesforceConnector):
-            self.assertFalse(name.startswith(("create", "delete", "upsert", "send", "insert", "close")), name)
+            self.assertFalse(name.startswith(("create", "delete", "upsert", "send", "insert")), name)
         self.assertEqual(self.sf.cancel_order("1001", "COMP-SALESFORCE")["code"], "NOT_SUPPORTED")
         self.assertEqual(self.sf.escalate_to_human("1001", "x", "COMP-SALESFORCE")["status"], "ERROR")
         for soql in self.fake.soql:

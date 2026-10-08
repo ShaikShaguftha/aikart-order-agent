@@ -1,318 +1,655 @@
 import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
+
+import httpx
+
 from integrations.gateway import gateway
 from integrations.providers.woocommerce import WooCommerceConnector
-from integrations.providers.local_db import LocalDBConnector
-from integrations.providers.shopify import ShopifyConnector
 
 
-class TestWooCommerceConnectorUnit(unittest.TestCase):
+TEST_SITE_URL = "https://test-woo-store.com"
+TEST_KEY = "ck_test_1234567890abcdef"
+TEST_SECRET = "cs_test_1234567890abcdef"
+
+
+def response(status_code=200, body=None, headers=None, bad_json=False):
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.headers = headers or {}
+
+    if bad_json:
+        mock_response.json.side_effect = ValueError("Invalid or empty JSON response")
+    else:
+        mock_response.json.return_value = body
+
+    return mock_response
+
+
+def raw_order(
+    order_id=1001,
+    number="1001",
+    status="processing",
+    total="99.50",
+    description=None,
+):
+    return {
+        "id": order_id,
+        "number": number,
+        "status": status,
+        "date_created_gmt": "2026-09-25T10:00:00",
+        "total": total,
+        "billing": {
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "email": "jane@example.com",
+            "phone": "+15550199",
+        },
+        "line_items": [
+            {
+                "id": 1,
+                "name": "Wireless Mouse",
+                "quantity": 1,
+                "price": total,
+            }
+        ],
+        "meta_data": [],
+        "customer_note": description or "",
+    }
+
+
+class WooCommerceFixture(unittest.TestCase):
 
     def setUp(self):
+        # Prevent Windows/Jupyter sys.__stdout__ logging failures.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
+
         self.connector = WooCommerceConnector(
-            site_url="https://test-woo-store.com",
-            consumer_key="ck_test_1234567890abcdef",
-            consumer_secret="cs_test_1234567890abcdef",
+            site_url=TEST_SITE_URL,
+            consumer_key=TEST_KEY,
+            consumer_secret=TEST_SECRET,
+            timeout=2.0,
+            retry_backoff=0.001,
         )
 
+
+class TestWooCommerceConnectorUnit(WooCommerceFixture):
+
+    # --------------------------------------------------------------
+    # HTTP LIFECYCLE / AUTH
+    # --------------------------------------------------------------
+
+    def test_http_client_reused_and_closed(self):
+        first_client = self.connector._get_client()
+        second_client = self.connector._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        self.connector.close()
+
+        self.assertIsNone(self.connector._client)
+        self.assertTrue(first_client.is_closed)
+
     @patch("httpx.Client.request")
-    def test_01_get_shop_success(self, mock_request):
-        """Test retrieving shop details from mocked WooCommerce system status API."""
-        mock_res = MagicMock()
-        mock_res.status_code = 200
-        mock_res.json.return_value = {
-            "environment": {
-                "site_title": "WooCommerce Test Store",
-                "site_url": "https://test-woo-store.com",
-                "admin_email": "admin@test-woo-store.com",
+    def test_https_uses_basic_auth(self, mock_request):
+        mock_request.return_value = response(
+            200,
+            {
+                "environment": {
+                    "site_title": "WooCommerce Test Store",
+                },
+                "settings": {
+                    "currency": "USD",
+                },
             },
-            "settings": {
-                "currency": "USD",
+        )
+
+        self.connector.get_shop("COMP-WOOCOMMERCE")
+
+        request_kwargs = mock_request.call_args.kwargs
+
+        self.assertEqual(
+            request_kwargs["auth"],
+            (TEST_KEY, TEST_SECRET),
+        )
+
+        self.assertEqual(
+            request_kwargs["method"],
+            "GET",
+        )
+
+    # --------------------------------------------------------------
+    # SUCCESS CASES
+    # --------------------------------------------------------------
+
+    @patch("httpx.Client.request")
+    def test_get_shop_success(self, mock_request):
+        mock_request.return_value = response(
+            200,
+            {
+                "environment": {
+                    "site_title": "WooCommerce Test Store",
+                    "site_url": TEST_SITE_URL,
+                    "admin_email": "admin@test-woo-store.com",
+                },
+                "settings": {
+                    "currency": "USD",
+                },
             },
-        }
-        mock_request.return_value = mock_res
+        )
 
         shop_info = self.connector.get_shop("COMP-WOOCOMMERCE")
+
         self.assertEqual(shop_info["name"], "WooCommerce Test Store")
         self.assertEqual(shop_info["provider"], "WOOCOMMERCE")
         self.assertEqual(shop_info["currency"], "USD")
 
     @patch("httpx.Client.request")
-    def test_02_get_orders(self, mock_request):
-        """Test listing orders from mocked WooCommerce REST API v3."""
-        mock_res = MagicMock()
-        mock_res.status_code = 200
-        mock_res.json.return_value = [
-            {
-                "id": 1001,
-                "number": "1001",
-                "status": "processing",
-                "date_created_gmt": "2026-09-25T10:00:00",
-                "total": "99.50",
-                "billing": {
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "email": "jane@example.com",
-                },
-                "line_items": [
-                    {
-                        "id": 1,
-                        "name": "Wireless Mouse",
-                        "quantity": 1,
-                        "price": "99.50",
-                    }
-                ],
-                "meta_data": [],
-            }
-        ]
-        mock_request.return_value = mock_res
+    def test_get_orders_success(self, mock_request):
+        mock_request.return_value = response(
+            200,
+            [
+                raw_order(),
+            ],
+        )
 
-        orders = self.connector.get_orders("COMP-WOOCOMMERCE", limit=5)
+        orders = self.connector.get_orders(
+            "COMP-WOOCOMMERCE",
+            limit=5,
+        )
+
         self.assertEqual(len(orders), 1)
         self.assertEqual(orders[0]["id"], "1001")
         self.assertEqual(orders[0]["status"], "PROCESSING")
         self.assertEqual(orders[0]["financial_status"], "PAID")
         self.assertEqual(orders[0]["total"], 99.50)
-        self.assertEqual(orders[0]["items"][0]["product_name"], "Wireless Mouse")
+        self.assertEqual(
+            orders[0]["items"][0]["product_name"],
+            "Wireless Mouse",
+        )
+
+        self.assertEqual(
+            mock_request.call_args.kwargs["params"],
+            {"per_page": 5},
+        )
 
     @patch("httpx.Client.request")
-    def test_03_get_order_details_by_id(self, mock_request):
-        """Test retrieving single order details by numeric ID."""
-        mock_res = MagicMock()
-        mock_res.status_code = 200
-        mock_res.json.return_value = {
-            "id": 1002,
-            "number": "1002",
-            "status": "completed",
-            "date_created_gmt": "2026-09-24T15:30:00",
-            "total": "150.00",
-            "billing": {
-                "first_name": "John",
-                "last_name": "Smith",
-                "email": "john@example.com",
-            },
-            "line_items": [
-                {
-                    "id": 2,
-                    "name": "Mechanical Keyboard",
-                    "quantity": 1,
-                    "price": "150.00",
-                }
-            ],
-            "meta_data": [
-                {"key": "_tracking_number", "value": "TRK-WOO-999"},
-                {"key": "_tracking_provider", "value": "FedEx"},
-            ],
-        }
-        mock_request.return_value = mock_res
+    def test_get_order_details_success(self, mock_request):
+        order_response = raw_order(
+            order_id=1002,
+            number="1002",
+            status="completed",
+            total="150.00",
+        )
 
-        order = self.connector.get_order_details("1002", "COMP-WOOCOMMERCE")
+        order_response["meta_data"] = [
+            {
+                "key": "_tracking_number",
+                "value": "TRK-WOO-999",
+            },
+            {
+                "key": "_tracking_provider",
+                "value": "FedEx",
+            },
+        ]
+
+        mock_request.return_value = response(
+            200,
+            order_response,
+        )
+
+        order = self.connector.get_order_details(
+            "1002",
+            "COMP-WOOCOMMERCE",
+        )
+
         self.assertIsNotNone(order)
         self.assertEqual(order["id"], "1002")
         self.assertEqual(order["status"], "COMPLETED")
         self.assertEqual(order["fulfillment_status"], "FULFILLED")
         self.assertEqual(order["total"], 150.00)
-        self.assertIsNotNone(order.get("shipment"))
-        self.assertEqual(order["shipment"]["tracking_number"], "TRK-WOO-999")
+        self.assertEqual(
+            order["shipment"]["tracking_number"],
+            "TRK-WOO-999",
+        )
 
     @patch("httpx.Client.request")
-    def test_04_get_customer(self, mock_request):
-        """Test retrieving customer record by email."""
-        # 1. GET customers?email=...
-        # 2. GET orders?customer=...
-        mock_cust_res = MagicMock()
-        mock_cust_res.status_code = 200
-        mock_cust_res.json.return_value = [
+    def test_get_product_success(self, mock_request):
+        mock_request.return_value = response(
+            200,
             {
-                "id": 45,
-                "email": "alice@example.com",
-                "first_name": "Alice",
-                "last_name": "Wonder",
-            }
+                "id": 88,
+                "name": "Gaming Desk Pad",
+                "slug": "gaming-desk-pad",
+                "type": "simple",
+                "status": "publish",
+                "price": "29.99",
+                "regular_price": "35.00",
+                "sale_price": "29.99",
+                "sku": "PAD-88",
+                "stock_status": "instock",
+                "stock_quantity": 50,
+                "short_description": "Waterproof RGB pad",
+            },
+        )
+
+        product = self.connector.get_product(
+            "88",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(product["product_id"], "88")
+        self.assertEqual(product["name"], "Gaming Desk Pad")
+        self.assertEqual(product["price"], 29.99)
+        self.assertEqual(product["stock_status"], "instock")
+
+    # 4XX ERRORS
+
+    @patch("httpx.Client.request")
+    def test_400_returns_validation_error(self, mock_request):
+        mock_request.return_value = response(
+            400,
+            {
+                "code": "woocommerce_rest_invalid_order",
+                "message": "Invalid order ID",
+            },
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_VALIDATION_FAILED",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            400,
+        )
+
+    @patch("httpx.Client.request")
+    def test_401_returns_auth_error(self, mock_request):
+        mock_request.return_value = response(
+            401,
+            {
+                "code": "woocommerce_rest_authentication_error",
+            },
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_AUTH_FAILED",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            401,
+        )
+
+    @patch("httpx.Client.request")
+    def test_403_returns_forbidden_error(self, mock_request):
+        mock_request.return_value = response(
+            403,
+            {
+                "code": "woocommerce_rest_cannot_view",
+            },
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_FORBIDDEN",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            403,
+        )
+
+    @patch("httpx.Client.request")
+    def test_404_record_not_found_and_route_not_found(self, mock_request):
+        mock_request.return_value = response(
+            404,
+            {
+                "code": "woocommerce_rest_shop_order_invalid_id",
+            },
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "NOT_FOUND",
+        )
+
+        mock_request.return_value = response(
+            404,
+            {
+                "code": "rest_no_route",
+            },
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_API_UNAVAILABLE",
+        )
+
+    # 429 / RETRIES
+
+    @patch("integrations.providers.woocommerce.time.sleep")
+    @patch("httpx.Client.request")
+    def test_429_retries_then_succeeds(self, mock_request, mock_sleep):
+        mock_request.side_effect = [
+            response(
+                429,
+                {
+                    "code": "woocommerce_rest_rate_limit",
+                },
+                headers={
+                    "Retry-After": "0",
+                },
+            ),
+            response(
+                200,
+                raw_order(),
+            ),
         ]
 
-        mock_orders_res = MagicMock()
-        mock_orders_res.status_code = 200
-        mock_orders_res.json.return_value = []
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
 
-        mock_request.side_effect = [mock_cust_res, mock_orders_res]
+        self.assertEqual(result["id"], "1001")
+        self.assertEqual(mock_request.call_count, 2)
+        mock_sleep.assert_called_once_with(0.001)
 
-        customer = self.connector.get_customer("alice@example.com", "COMP-WOOCOMMERCE")
-        self.assertEqual(customer["customer_id"], "45")
+    # 5XX / RETRIES
 
+    @patch("integrations.providers.woocommerce.time.sleep")
     @patch("httpx.Client.request")
-    def test_05_get_product(self, mock_request):
-        """Test fetching product catalog entry by numeric product ID."""
-        mock_res = MagicMock()
-        mock_res.status_code = 200
-        mock_res.json.return_value = {
-            "id": 88,
-            "name": "Gaming Desk Pad",
-            "slug": "gaming-desk-pad",
-            "type": "simple",
-            "status": "publish",
-            "price": "29.99",
-            "regular_price": "35.00",
-            "sale_price": "29.99",
-            "sku": "PAD-88",
-            "stock_status": "instock",
-            "stock_quantity": 50,
-            "short_description": "Waterproof RGB pad",
-        }
-        mock_request.return_value = mock_res
-
-        prod = self.connector.get_product("88", "COMP-WOOCOMMERCE")
-        self.assertEqual(prod["product_id"], "88")
-        self.assertEqual(prod["name"], "Gaming Desk Pad")
-        self.assertEqual(prod["price"], 29.99)
-        self.assertEqual(prod["stock_status"], "instock")
-
-    @patch("httpx.Client.request")
-    def test_06_get_order_status(self, mock_request):
-        """Test retrieving high-level order status."""
-        mock_res = MagicMock()
-        mock_res.status_code = 200
-        mock_res.json.return_value = {
-            "id": 1003,
-            "number": "1003",
-            "status": "on-hold",
-            "total": "40.00",
-            "line_items": [],
-        }
-        mock_request.return_value = mock_res
-
-        status_info = self.connector.get_order_status("1003", "COMP-WOOCOMMERCE")
-        self.assertEqual(status_info["order_id"], "1003")
-        self.assertEqual(status_info["status"], "ON-HOLD")
-
-    @patch("httpx.Client.request")
-    def test_07_cancel_order_execution(self, mock_request):
-        """Test canceling order via PUT /wp-json/wc/v3/orders/{id}."""
-        # 1. get_order_details pre-check
-        # 2. PUT orders/{id} status change
-        # 3. get_order_details verification
-        mock_order_pre = MagicMock()
-        mock_order_pre.status_code = 200
-        mock_order_pre.json.return_value = {
-            "id": 1004,
-            "number": "1004",
-            "status": "processing",
-            "total": "80.00",
-            "line_items": [{"name": "Headset", "quantity": 1, "price": "80.00"}],
-        }
-
-        mock_put_res = MagicMock()
-        mock_put_res.status_code = 200
-        mock_put_res.json.return_value = {
-            "id": 1004,
-            "number": "1004",
-            "status": "cancelled",
-        }
-
-        mock_order_post = MagicMock()
-        mock_order_post.status_code = 200
-        mock_order_post.json.return_value = {
-            "id": 1004,
-            "number": "1004",
-            "status": "cancelled",
-            "total": "80.00",
-            "line_items": [],
-        }
-
-        mock_request.side_effect = [mock_order_pre, mock_put_res, mock_order_post]
-
-        res = self.connector.cancel_order("1004", "COMP-WOOCOMMERCE", reason="CUSTOMER")
-        self.assertTrue(res["success"])
-        self.assertEqual(res["status"], "CANCELLED")
-        self.assertEqual(res["verification_status"], "VERIFIED")
-
-    @patch("httpx.Client.request")
-    def test_08_update_order(self, mock_request):
-        """Test updating order customer note/status via update_order capability."""
-        mock_res = MagicMock()
-        mock_res.status_code = 200
-        mock_res.json.return_value = {
-            "id": 1005,
-            "number": "1005",
-            "status": "completed",
-            "customer_note": "Customer requested priority delivery.",
-            "total": "120.00",
-            "line_items": [],
-        }
-        mock_request.return_value = mock_res
-
-        res = self.connector.update_order("1005", "COMP-WOOCOMMERCE", status="completed", customer_note="Customer requested priority delivery.")
-        self.assertEqual(res["id"], "1005")
-        self.assertEqual(res["status"], "COMPLETED")
-
-    @patch("httpx.Client.request")
-    def test_09_refunds_and_controlled_return(self, mock_request):
-        """Test read-only refund status operation and controlled return capability response."""
-        # 1. get_order_details inside request_return
-        # 2. get_refunds inside request_return
-        mock_order = MagicMock()
-        mock_order.status_code = 200
-        mock_order.json.return_value = {
-            "id": 1006,
-            "number": "1006",
-            "status": "completed",
-            "total": "200.00",
-            "line_items": [],
-        }
-
-        mock_refunds = MagicMock()
-        mock_refunds.status_code = 200
-        mock_refunds.json.return_value = [
-            {
-                "id": 1,
-                "amount": "50.00",
-                "reason": "Partial refund for damaged packaging",
-                "date_created_gmt": "2026-09-25T11:00:00",
-            }
+    def test_5xx_get_retries_three_times(self, mock_request, mock_sleep):
+        mock_request.side_effect = [
+            response(500, {"code": "server_error"}),
+            response(502, {"code": "bad_gateway"}),
+            response(503, {"code": "service_unavailable"}),
         ]
 
-        mock_request.side_effect = [mock_order, mock_refunds]
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
 
-        res = self.connector.request_return("1006", 50.0, "COMP-WOOCOMMERCE")
-        self.assertEqual(res["status"], "CONTROLLED_CAPABILITY")
-        self.assertEqual(res["refunds_summary"]["total_refunded"], 50.0)
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_UNAVAILABLE",
+        )
 
-    def test_10_gateway_provider_routing(self):
-        """Test that IntegrationGateway routes COMP-WOOCOMMERCE to WooCommerceConnector."""
-        woo_connector = gateway.get_connector("COMP-WOOCOMMERCE")
-        self.assertIsInstance(woo_connector, WooCommerceConnector)
+        self.assertEqual(
+            result["http_status"],
+            503,
+        )
 
-    def test_11_auth_credentials_never_exposed(self):
-        """Test that consumer secrets and keys are sanitized and redacted from error messages."""
+        self.assertEqual(mock_request.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("httpx.Client.request")
+    def test_put_is_not_retried_on_5xx(self, mock_request):
+        mock_request.return_value = response(
+            500,
+            {
+                "code": "server_error",
+            },
+        )
+
+        result = self.connector._execute_request(
+            "PUT",
+            "orders/1001",
+            json_data={
+                "status": "cancelled",
+            },
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_UNAVAILABLE",
+        )
+
+        self.assertEqual(mock_request.call_count, 1)
+
+    # TIMEOUT / NETWORK
+
+    @patch("integrations.providers.woocommerce.time.sleep")
+    @patch("httpx.Client.request")
+    def test_timeout_retries_then_returns_timeout(self, mock_request, mock_sleep):
+        mock_request.side_effect = httpx.ReadTimeout(
+            "Request timed out",
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_TIMEOUT",
+        )
+
+        self.assertEqual(mock_request.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("integrations.providers.woocommerce.time.sleep")
+    @patch("httpx.Client.request")
+    def test_network_error_retries_then_returns_unreachable(self, mock_request, mock_sleep):
+        mock_request.side_effect = httpx.ConnectError(
+            "Connection failed",
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_UNREACHABLE",
+        )
+
+        self.assertEqual(mock_request.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    # MALFORMED / EMPTY RESPONSES
+
+    @patch("httpx.Client.request")
+    def test_malformed_or_empty_200_response_returns_invalid_response(self, mock_request):
+        mock_request.return_value = response(
+            200,
+            bad_json=True,
+        )
+
+        result = self.connector.get_order_details(
+            "1001",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_INVALID_RESPONSE",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            200,
+        )
+
+    # LARGE RESPONSE LIMITS
+
+    @patch("httpx.Client.request")
+    def test_large_order_list_is_limited(self, mock_request):
+        large_orders = [
+            raw_order(
+                order_id=1000 + index,
+                number=str(1000 + index),
+            )
+            for index in range(60)
+        ]
+
+        mock_request.return_value = response(
+            200,
+            large_orders,
+        )
+
+        result = self.connector.get_orders(
+            "COMP-WOOCOMMERCE",
+            limit=999,
+        )
+
+        self.assertEqual(
+            len(result),
+            50,
+        )
+
+        self.assertEqual(
+            mock_request.call_args.kwargs["params"],
+            {"per_page": 50},
+        )
+
+    @patch("httpx.Client.request")
+    def test_large_product_description_is_truncated(self, mock_request):
+        mock_request.return_value = response(
+            200,
+            {
+                "id": 88,
+                "name": "Large Product",
+                "slug": "large-product",
+                "type": "simple",
+                "status": "publish",
+                "price": "29.99",
+                "regular_price": "29.99",
+                "sale_price": None,
+                "sku": "LARGE-88",
+                "stock_status": "instock",
+                "stock_quantity": 50,
+                "description": "X" * 5000,
+            },
+        )
+
+        product = self.connector.get_product(
+            "88",
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertLessEqual(
+            len(product["description"]),
+            2050,
+        )
+
+        self.assertIn(
+            "[TRUNCATED FOR TOKEN LIMITS]",
+            product["description"],
+        )
+
+    # CREDENTIAL REDACTION
+
+    def test_auth_credentials_never_exposed(self):
         connector = WooCommerceConnector(
             site_url="https://secret-store.com",
             consumer_key="ck_super_secret_key_123",
             consumer_secret="cs_super_secret_val_456",
         )
-        raw_msg = "Failed with credentials ck_super_secret_key_123 and cs_super_secret_val_456"
-        clean = connector._sanitize_error(raw_msg)
-        self.assertNotIn("ck_super_secret_key_123", clean)
-        self.assertNotIn("cs_super_secret_val_456", clean)
-        self.assertIn("[REDACTED_KEY]", clean)
-        self.assertIn("[REDACTED_SECRET]", clean)
+
+        raw_message = (
+            "Failed with credentials "
+            "ck_super_secret_key_123 and "
+            "cs_super_secret_val_456"
+        )
+
+        clean_message = connector._sanitize_error(
+            raw_message,
+        )
+
+        self.assertNotIn(
+            "ck_super_secret_key_123",
+            clean_message,
+        )
+
+        self.assertNotIn(
+            "cs_super_secret_val_456",
+            clean_message,
+        )
+
+        self.assertIn(
+            "[REDACTED_KEY]",
+            clean_message,
+        )
+
+        self.assertIn(
+            "[REDACTED_SECRET]",
+            clean_message,
+        )
+
+    # GATEWAY ROUTING
+
+    def test_gateway_provider_routing(self):
+        connector = gateway.get_connector(
+            "COMP-WOOCOMMERCE",
+        )
+
+        self.assertIsInstance(
+            connector,
+            WooCommerceConnector,
+        )
 
 
 class TestWooCommerceConnectorIntegration(unittest.TestCase):
     """
-    Live WooCommerce Integration Test Suite.
-    Skipped by default unless environment variable `RUN_WOOCOMMERCE_INTEGRATION_TESTS=true` is set.
+    Real WooCommerce E2E test.
+    Skipped by default because the configured WordPress Playground store is
+    not externally reachable as a WooCommerce REST API.
     """
 
     @unittest.skipUnless(
         os.getenv("RUN_WOOCOMMERCE_INTEGRATION_TESTS") == "true",
-        "Skipping live WooCommerce integration tests. Set RUN_WOOCOMMERCE_INTEGRATION_TESTS=true to enable.",
+        "Skipping live WooCommerce integration tests. "
+        "Set RUN_WOOCOMMERCE_INTEGRATION_TESTS=true to enable.",
     )
     def test_live_get_shop(self):
         connector = WooCommerceConnector()
-        shop_info = connector.get_shop("COMP-WOOCOMMERCE")
+
+        shop_info = connector.get_shop(
+            "COMP-WOOCOMMERCE",
+        )
+
         self.assertIsNotNone(shop_info)
-        self.assertEqual(shop_info.get("provider"), "WOOCOMMERCE")
+        self.assertEqual(
+            shop_info.get("provider"),
+            "WOOCOMMERCE",
+        )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
-﻿.env
+.env
+.ipynb_checkpoints/
 *.db
 __pycache__/
-.ipynb_checkpoints/
-
 docs/

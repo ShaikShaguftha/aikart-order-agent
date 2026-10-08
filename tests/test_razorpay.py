@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import os
+import sys
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
@@ -49,30 +50,54 @@ def _resp(status=200, body=None, headers=None, bad_json=False):
     else:
         r.json.return_value = body
     return r
-
-
+# Change
 class FakeRazorpay:
     def __init__(self):
         self.calls, self.queue = [], []
         self.refunds = [REFUND]
 
-    def __call__(self, method=None, url=None, params=None, headers=None, **kwargs):
-        self.calls.append({"method": method, "url": url, "params": dict(params or {}),
-                           "auth": (headers or {}).get("Authorization"), "body": kwargs.get("json") or kwargs.get("data")})
+    def __call__(self, client, method=None, url=None, params=None, headers=None, **kwargs):
+        """
+        Supports both the old request-level-header implementation and the new
+        persistent-httpx-client implementation where headers live on client.headers.
+        """
+        effective_headers = headers or client.headers
+
+        self.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "params": dict(params or {}),
+                "auth": effective_headers.get("Authorization"),
+                "body": kwargs.get("json") or kwargs.get("data"),
+            }
+        )
+
         if self.queue:
             item = self.queue.pop(0)
+
             if isinstance(item, Exception):
                 raise item
+
             return item
+
         if method != "GET":
             return _resp(405, bad_json=True)
-        routes = {f"{BASE_URL}/payments/{PAY_ID}": PAYMENT, f"{BASE_URL}/refunds/{REFUND_ID}": REFUND,
-                  f"{BASE_URL}/payments/{PAY_ID}/refunds": {"entity": "collection", "count": len(self.refunds),
-                                                             "items": self.refunds}}
+
+        routes = {
+            f"{BASE_URL}/payments/{PAY_ID}": PAYMENT,
+            f"{BASE_URL}/refunds/{REFUND_ID}": REFUND,
+            f"{BASE_URL}/payments/{PAY_ID}/refunds": {
+                "entity": "collection",
+                "count": len(self.refunds),
+                "items": self.refunds,
+            },
+        }
+
         if url in routes:
             return _resp(200, routes[url])
-        return _resp(400, NOT_EXIST)
 
+        return _resp(400, NOT_EXIST)
 
 class RazorpayFixture(unittest.TestCase):
 
@@ -80,23 +105,45 @@ class RazorpayFixture(unittest.TestCase):
     def setUpClass(cls):
         init_db()
 
+        
     def setUp(self):
         env = patch.dict(os.environ, ENV)
         env.start()
         self.addCleanup(env.stop)
+
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so use the valid
+        # active stdout stream during each test.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
+
         self.fake = FakeRazorpay()
         original = httpx.Client.request
 
         def transport(client, method, url, *args, **kwargs):
             if "api.razorpay.com" in str(url):
-                return self.fake(method=method, url=str(url), **kwargs)
+                return self.fake(
+                    client,
+                    method=method,
+                    url=str(url),
+                    **kwargs,
+                )
+
             return original(client, method, url, *args, **kwargs)
 
-        for target in (patch.object(httpx.Client, "request", transport),
-                       patch("integrations.providers.razorpay.time.sleep")):
+        for target in (
+            patch.object(httpx.Client, "request", transport),
+            patch("integrations.providers.razorpay.time.sleep"),
+        ):
             target.start()
             self.addCleanup(target.stop)
-        self.rzp = RazorpayConnector(KEY_ID, SECRET, retry_backoff=0)
+
+        self.rzp = RazorpayConnector(
+            KEY_ID,
+            SECRET,
+            retry_backoff=0,
+        )
 
 
 class ReadTest(RazorpayFixture):
@@ -112,7 +159,7 @@ class ReadTest(RazorpayFixture):
         result = self.rzp.get_payment_refunds(PAY_ID)
         self.assertEqual((result["payment_id"], result["count"], result["more_records"]), (PAY_ID, 1, False))
         self.assertEqual(result["refunds"][0]["id"], REFUND_ID)
-        self.assertEqual(self.fake.calls[0]["params"], {"count": 100})
+        self.assertEqual(self.fake.calls[0]["params"], {"count": 10})
         self.fake.refunds = []
         self.assertEqual(self.rzp.get_payment_refunds(PAY_ID)["refunds"], [])
 
@@ -128,6 +175,22 @@ class ReadTest(RazorpayFixture):
         self.assertEqual(base64.b64decode(auth.split()[1]).decode(), f"{KEY_ID}:{SECRET}")
         self.assertEqual(self.rzp.mode, "test")
         self.assertEqual(RazorpayConnector("rzp_live_AbCdEf123456", "s").mode, "live")
+
+
+    def test_http_client_reused_and_closed(self):
+        """
+        The connector must reuse one httpx client until close() is called.
+        """
+        first_client = self.rzp._get_client()
+        second_client = self.rzp._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        self.rzp.close()
+
+        self.assertIsNone(self.rzp._client)
+        self.assertTrue(first_client.is_closed)
 
     def test_05_endpoint_construction_and_id_validation(self):
         self.rzp.get_payment(PAY_ID)
@@ -149,7 +212,7 @@ class ReadTest(RazorpayFixture):
         self.fake.queue = [_resp(200, dict(PAYMENT, currency="JPY", amount=5000, amount_refunded=0))]
         payment = self.rzp.get_payment(PAY_ID)
         self.assertEqual((payment["amount"], payment["amount_minor"], payment["amount_refunded"]), (5000.0, 5000, 0.0))
-        self.fake.queue = [_resp(200, {"entity": "collection", "count": 100, "items": [REFUND] * 100})]
+        self.fake.queue = [_resp(200, {"entity": "collection", "count": 15, "items": [REFUND] * 15})]
         self.assertTrue(self.rzp.get_payment_refunds(PAY_ID)["more_records"])
         self.assertNotIn("notes", json.dumps(self.rzp.get_payment(PAY_ID)))  # only canonical fields
         self.assertNotIn("card_id", json.dumps(self.rzp.get_payment(PAY_ID)))
@@ -200,11 +263,71 @@ class ErrorTest(RazorpayFixture):
         self.fake.queue = [_resp(200, dict(REFUND, id="rfnd_SomeoneElse1234"))]
         self.assertEqual(self.rzp.get_refund(REFUND_ID)["code"], "PROVIDER_INVALID_RESPONSE")
 
+
+    def test_empty_200_response_is_invalid(self):
+        """
+        A successful HTTP status with an empty/non-JSON body must not be
+        treated as a successful Razorpay payment response.
+        """
+        result = self._get(_resp(200, bad_json=True))
+
+        self.assertEqual(result["code"], "PROVIDER_INVALID_RESPONSE")
+        self.assertEqual(result["http_status"], 200)
+
+    def test_large_refund_response_is_limited_to_ten_records(self):
+        """
+        Even if the provider response contains more items than requested,
+        Luintix must return no more than the configured refund page size.
+        """
+        large_refunds = [
+            dict(
+                REFUND,
+                id=f"rfnd_{index:014d}",
+            )
+            for index in range(15)
+        ]
+
+        self.fake.queue = [
+            _resp(
+                200,
+                {
+                    "entity": "collection",
+                    "count": 15,
+                    "items": large_refunds,
+                },
+            )
+        ]
+
+        result = self.rzp.get_payment_refunds(
+            PAY_ID,
+            limit=10,
+        )
+
+        self.assertEqual(result["payment_id"], PAY_ID)
+        self.assertEqual(result["count"], 10)
+        self.assertEqual(len(result["refunds"]), 10)
+        self.assertTrue(result["more_records"])
+
     def test_09_missing_and_odd_fields(self):
         payment = self._get(_resp(200, {"id": PAY_ID, "entity": "payment", "amount": "500", "created_at": "yesterday",
                                         "captured": "yes", "email": ""}))
-        self.assertEqual({k: payment[k] for k in ("amount", "amount_minor", "currency", "status", "email", "captured", "created_at")},
-                         dict.fromkeys(("amount", "amount_minor", "currency", "status", "email", "captured", "created_at")))
+        expected_missing_values = {
+            "amount": None,
+            "amount_minor": None,
+            "currency": None,
+            "status": None,
+            "email": None,
+            "captured": None,
+            "created_at": None,
+        }
+
+        self.assertEqual(
+            {
+                key: payment.get(key)
+                for key in expected_missing_values
+            },
+            expected_missing_values,
+        )
         self.fake.queue = [_resp(200, {"entity": "collection", "items": [None, "junk", REFUND]})]
         self.assertEqual(self.rzp.get_payment_refunds(PAY_ID)["count"], 1)
 

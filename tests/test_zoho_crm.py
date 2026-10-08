@@ -9,6 +9,7 @@ refresh flow, and that secrets never appear in URLs, logs or results.
 import io
 import json
 import os
+import sys
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
@@ -95,9 +96,18 @@ class ZohoFixture(unittest.TestCase):
 
     def setUp(self):
         ZohoCRMConnector._token_cache.clear()
+
         self.env = patch.dict(os.environ, ENV)
         self.env.start()
         self.addCleanup(self.env.stop)
+
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so redirect it to
+        # the valid active stdout stream for the duration of each test.
+        self.stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        self.stdout_patch.start()
+        self.addCleanup(self.stdout_patch.stop)
+
         self.fake = FakeZoho()
         original = httpx.Client.request
 
@@ -247,6 +257,75 @@ class ErrorHandlingTest(ZohoFixture):
         self.assertEqual(self._get(_resp(200, bad_json=True))["code"], "PROVIDER_INVALID_RESPONSE")
         self.assertEqual(self._get(_resp(200, {"data": "nope"}))["code"], "PROVIDER_INVALID_RESPONSE")
         self.assertEqual(self._get(_resp(200, {"data": [{"id": "5725767000000000000"}]}))["code"], "NOT_FOUND")
+
+
+    def test_empty_200_response_is_invalid(self):
+        """
+        A 204 response is valid for an empty Zoho result.
+        But a 200 response with an empty/non-JSON body is malformed.
+        """
+        result = self._get(_resp(200, bad_json=True))
+
+        self.assertEqual(result["code"], "PROVIDER_INVALID_RESPONSE")
+        self.assertEqual(result["http_status"], 200)
+
+    def test_large_search_response_is_limited_to_search_limit(self):
+        """
+        Zoho may return more records than requested or than expected.
+        The connector must return no more than SEARCH_LIMIT contacts.
+        """
+        self.fake.valid_tokens.add(OLD_TOKEN)
+
+        many_contacts = []
+
+        for index in range(15):
+            contact = dict(CONTACT)
+            contact["id"] = f"572576700000041{index:04d}"
+            contact["First_Name"] = f"Customer{index}"
+            contact["Email"] = f"customer{index}@example.com"
+            many_contacts.append(contact)
+
+        self.fake.queue = [
+            _resp(
+                200,
+                {
+                    "data": many_contacts,
+                    "info": {
+                        "count": 15,
+                        "more_records": True,
+                    },
+                },
+            )
+        ]
+
+        result = gateway.crm_search_contacts(
+            "COMP-ZOHO",
+            name="Rahul",
+        )
+
+        self.assertEqual(result["searched_by"], "name")
+        self.assertEqual(result["count"], 10)
+        self.assertEqual(len(result["contacts"]), 10)
+        self.assertTrue(result["more_records"])
+
+    def test_reused_http_client_lifecycle(self):
+        """
+        Ensures the connector reuses one HTTP client until close() is called.
+        This test applies after adding _get_client(), close(), and _client support
+        to ZohoCRMConnector.
+        """
+        connector = self.connector()
+
+        first_client = connector._get_client()
+        second_client = connector._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        connector.close()
+
+        self.assertIsNone(connector._client)
+        self.assertTrue(first_client.is_closed)
 
     def test_secrets_never_logged_or_returned(self):
         buffer = io.StringIO()

@@ -8,6 +8,7 @@ import hmac
 import io
 import json
 import os
+import sys
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -73,31 +74,85 @@ class FakeShippo:
     def __init__(self):
         self.calls, self.overrides = [], {}
 
-    def __call__(self, method=None, url=None, params=None, json=None, headers=None, **_):
+    def __call__(self, client, method=None, url=None, params=None, json=None, headers=None, **_):
+        """
+        Supports both request-level headers and the improved persistent-client
+        approach where Authorization lives in client.headers.
+        """
         path = url.split("api.goshippo.com/", 1)[1]
-        self.calls.append({"method": method, "path": path, "json": json, "auth": (headers or {}).get("Authorization")})
+
+        effective_headers = headers or client.headers
+
+        self.calls.append(
+            {
+                "method": method,
+                "path": path,
+                "json": json,
+                "auth": effective_headers.get("Authorization"),
+            }
+        )
+
         override = self.overrides.get((method, path))
+
         if isinstance(override, list):
-            override = override.pop(0) if override else None  # scripted responses, then defaults
+            override = override.pop(0) if override else None
+
         if isinstance(override, Exception):
             raise override
+
         if override is not None:
             return override
+
         if method == "GET" and path == "carrier_accounts/":
-            return _resp(200, {"next": None, "results": [
-                {"object_id": "ca_1", "carrier": "shippo", "carrier_name": "Shippo", "account_id": "shippo_test_acct",
-                 "active": True, "test": True, "is_shippo_account": True},
-                {"object_id": "ca_2", "carrier": "usps", "carrier_name": "USPS", "account_id": "SECRET-ACCOUNT-123",
-                 "active": True, "test": True, "is_shippo_account": True}]})
+            return _resp(
+                200,
+                {
+                    "next": None,
+                    "results": [
+                        {
+                            "object_id": "ca_1",
+                            "carrier": "shippo",
+                            "carrier_name": "Shippo",
+                            "account_id": "shippo_test_acct",
+                            "active": True,
+                            "test": True,
+                            "is_shippo_account": True,
+                        },
+                        {
+                            "object_id": "ca_2",
+                            "carrier": "usps",
+                            "carrier_name": "USPS",
+                            "account_id": "SECRET-ACCOUNT-123",
+                            "active": True,
+                            "test": True,
+                            "is_shippo_account": True,
+                        },
+                    ],
+                },
+            )
+
         if method == "GET" and path.startswith("tracks/"):
             _, carrier, number = path.split("/")
             return _resp(200, track(number, carrier))
+
         if method == "POST" and path == "tracks/":
-            return _resp(201, track(json["tracking_number"], json["carrier"], metadata=json.get("metadata")))
+            return _resp(
+                201,
+                track(
+                    json["tracking_number"],
+                    json["carrier"],
+                    metadata=json.get("metadata"),
+                ),
+            )
+
         return _resp(404, {"detail": "Not found"})
 
     def by(self, method, prefix=""):
-        return [c for c in self.calls if c["method"] == method and c["path"].startswith(prefix)]
+        return [
+            call
+            for call in self.calls
+            if call["method"] == method and call["path"].startswith(prefix)
+        ]
 
 
 def signed_headers(body: bytes, secret=SECRET_A, ts=None):
@@ -119,6 +174,12 @@ class ShippoFixture(unittest.TestCase):
         cls.env.stop()
 
     def setUp(self):
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so redirect it to
+        # the valid active stdout stream for each test.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
         for tenant in (TENANT_A, TENANT_B, TENANT_NONE):
             execute_db("INSERT OR IGNORE INTO companies (id, name, tier) VALUES (?, ?, 'STANDARD')", (tenant, tenant))
         for table in ("shipping_integrations", "shipment_tracking_registrations", "tracking_events", "shipment_tracking_state"):
@@ -131,16 +192,41 @@ class ShippoFixture(unittest.TestCase):
                    "VALUES (?, 'SHOPIFY', 'test.myshopify.com', 'shpat_test')", (TENANT_A,))
         _EndpointBudget._buckets.clear()
         self.fake = FakeShippo()
+        original_request = httpx.Client.request
         self.order = {"id": "#1004", "status": "FULFILLED", "financial_status": "PAID", "fulfillment_status": "FULFILLED",
                       "total": 20.0, "customer_email": EMAIL,
                       "shipment": {"id": "gid://shopify/Fulfillment/9", "order_id": "#1004", "courier": "shippo",
                                    "tracking_number": "SHIPPO_TRANSIT", "status": "FULFILLED"}}
         self.order_reads = MagicMock(side_effect=lambda order_id, company_id: dict(self.order) if order_id in ("#1004", "1004") else None)
-        for target in (patch("httpx.Client.request", side_effect=self.fake),
-                       patch("integrations.providers.shippo.time.sleep"),
-                       patch.object(ShopifyConnector, "get_order_details", self.order_reads)):
+        def transport(client, method, url, *args, **kwargs):
+            if "api.goshippo.com" in str(url):
+                return self.fake(
+                    client,
+                    method=method,
+                    url=str(url),
+                    **kwargs,
+                )
+
+            return original_request(
+                client,
+                method,
+                url,
+                *args,
+                **kwargs,
+            )
+
+        for target in (
+            patch.object(httpx.Client, "request", transport),
+            patch("integrations.providers.shippo.time.sleep"),
+            patch.object(
+                ShopifyConnector,
+                "get_order_details",
+                self.order_reads,
+            ),
+        ):
             target.start()
             self.addCleanup(target.stop)
+            
 
     def registration(self, number="SHIPPO_TRANSIT", tenant=TENANT_A):
         return query_db("SELECT * FROM shipment_tracking_registrations WHERE company_id = ? AND tracking_number = ?",
@@ -155,6 +241,26 @@ class CredentialAndCarrierTest(ShippoFixture):
         self.assertEqual(self.fake.calls[0]["auth"], f"ShippoToken {TOKEN_A}")
         self.assertEqual(verify_shippo("not-a-shippo-token")["code"], "INVALID_TOKEN_FORMAT")
         self.assertEqual(len(self.fake.calls), 1)
+
+
+
+    def test_http_client_reused_and_closed(self):
+        connector = ShippoConnector(
+            TOKEN_A,
+            timeout=2.0,
+            retry_backoff=0.001,
+        )
+
+        first_client = connector._get_client()
+        second_client = connector._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        connector.close()
+
+        self.assertIsNone(connector._client)
+        self.assertTrue(first_client.is_closed)
 
     def test_02_carrier_accounts_retrieval(self):
         accounts = gateway.shipping_get_carrier_accounts(TENANT_A)
@@ -262,6 +368,33 @@ class ErrorHandlingTest(ShippoFixture):
         self.assertEqual(json.loads(get_tracking_status.invoke({"carrier": "shippo", "tracking_number": "SHIPPO_TRANSIT", "company_id": TENANT_A}))["code"],
                          "TENANT_CONFIGURATION_ERROR")
 
+
+    def test_09b_400_returns_validation_error(self):
+        result = self._get(
+            _resp(
+                400,
+                {
+                    "tracking_number": ["Invalid tracking number"],
+                    "carrier": ["Carrier is required"],
+                },
+            )
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_VALIDATION_FAILED",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            400,
+        )
+
+        self.assertEqual(
+            result["fields"],
+            ["carrier", "tracking_number"],
+        )
+
     def test_10_403(self):
         self.assertEqual(self._get(_resp(403, {}))["code"], "PROVIDER_FORBIDDEN")
 
@@ -314,6 +447,80 @@ class ErrorHandlingTest(ShippoFixture):
         self.assertEqual(self._get(_resp(200, ["not", "an", "object"]))["code"], "PROVIDER_INVALID_RESPONSE")
         self.fake.overrides[("GET", "carrier_accounts/")] = _resp(200, {"results": "nope"})
         self.assertFalse(gateway.shipping_verify_credentials(TENANT_A)["ok"])
+
+
+    def test_15b_empty_200_response_is_invalid(self):
+        """
+        HTTP 200 without a valid JSON body must not be treated as success.
+        """
+        result = self._get(
+            _resp(
+                200,
+                bad_json=True,
+            )
+        )
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_INVALID_RESPONSE",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            200,
+        )
+
+
+    def test_15c_large_tracking_history_is_truncated(self):
+        """
+        Connector output must cap tracking history and long tracking text
+        before passing it to the Gateway/agent.
+        """
+        long_status_details = "X" * 1000
+        long_substatus_text = "Y" * 1000
+
+        large_history = [
+            {
+                "object_id": f"event_{index}",
+                "object_updated": "2026-09-27T10:00:00Z",
+                "status": "TRANSIT",
+                "status_details": long_status_details,
+                "status_date": "2026-09-27T10:00:00Z",
+                "substatus": {
+                    "code": "in_transit",
+                    "text": long_substatus_text,
+                    "action_required": False,
+                },
+                "location": {
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "country": "US",
+                },
+            }
+            for index in range(150)
+        ]
+
+        raw_tracking = track("SHIPPO_TRANSIT")
+        raw_tracking["tracking_history"] = large_history
+
+        normalized = ShippoConnector.normalize_track(raw_tracking)
+
+        self.assertEqual(
+            len(normalized["tracking_history"]),
+            100,
+        )
+
+        first_event = normalized["tracking_history"][0]
+
+        self.assertEqual(
+            len(first_event["status_details"]),
+            200,
+        )
+
+        self.assertEqual(
+            len(first_event["substatus_text"]),
+            200,
+        )
 
     def test_token_never_logged_or_returned(self):
         self.fake.overrides[("GET", "tracks/shippo/SHIPPO_TRANSIT")] = RuntimeError(f"boom {TOKEN_A}")

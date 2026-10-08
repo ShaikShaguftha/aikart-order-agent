@@ -123,6 +123,7 @@ class ZohoCRMConnector(BaseConnector):
             # Seed with the configured token; its expiry is unknown, so it is used until rejected.
             self._token_cache[self._cache_key] = {"token": access_token.strip(), "expires_at": float("inf"),
                                                   "refreshed_at": 0.0}
+        self._client: Optional[httpx.Client] = None
 
     # ---- configuration & secrets -----------------------------------------------------
 
@@ -158,6 +159,31 @@ class ZohoCRMConnector(BaseConnector):
         if status is not None:
             err["http_status"] = status
         return err
+
+
+    def _get_client(self) -> httpx.Client:
+        """Create and reuse an HTTP connection pool for CRM and OAuth requests."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers={
+                    "User-Agent": "Luintix-ZohoCRM-Connector/1.0",
+                },
+            )
+        return self._client
+
+    def close(self) -> None:
+        """Close the reusable HTTP connection pool."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+        self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     # ---- OAuth 2.0 access-token management -------------------------------------------
 
@@ -240,14 +266,16 @@ class ZohoCRMConnector(BaseConnector):
             attempt += 1
             response = None
             try:
-                with httpx.Client(timeout=self.timeout) as client:
-                    response = client.request(
-                        method="GET",
-                        url=f"{self.api_domain}/crm/{API_VERSION}/{path}",
-                        params=params,
-                        headers={"Authorization": f"Zoho-oauthtoken {token}", "Accept": "application/json",
-                                 "User-Agent": "Luintix-ZohoCRM-Connector/1.0"},
-                    )
+                client = self._get_client()
+                response = client.request(
+                    method="GET",
+                    url=f"{self.api_domain}/crm/{API_VERSION}/{path}",
+                    params=params,
+                    headers={
+                        "Authorization": f"Zoho-oauthtoken {token}",
+                        "Accept": "application/json",
+                    },
+                )
                 status = response.status_code
                 log_provider_call(self.provider_name, "GET " + re.sub(r"/\d{5,}", "/{id}", path), status)
                 if status == 204:
@@ -392,7 +420,7 @@ class ZohoCRMConnector(BaseConnector):
         return {"name": "Zoho CRM", "domain": self.api_domain, "provider": self.provider_name}
 
     def get_orders(self, company_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        return [self._unsupported()]
+        return []
 
     def get_customer_details(self, identifier: str, company_id: str) -> List[Dict[str, Any]]:
         return []

@@ -275,13 +275,24 @@ def serve_chat_ui():
             padding: 16px 20px;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 12px;
         }
 
         .header-info {
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            width: 100%;
         }
 
         .brand-title {
@@ -594,7 +605,7 @@ def serve_chat_ui():
                 <span class="status-dot"></span> Active & Ready
             </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
+        <div class="header-controls">
             <select id="tenantSelect" style="background: rgba(255, 255, 255, 0.2); color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 12px; padding: 5px 8px; font-size: 0.78rem; font-family: var(--font-utility); font-weight: 600; cursor: pointer; outline: none;">
                 <option value="COMP-SHOPIFY" selected style="color: #000;">COMP-SHOPIFY (Shopify)</option>
                 <option value="COMP-WOOCOMMERCE" style="color: #000;">COMP-WOOCOMMERCE (WooCommerce)</option>

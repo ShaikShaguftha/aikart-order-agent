@@ -3,6 +3,7 @@ Unit and integration tests for Shadowfax Logistics Connector.
 Mocked HTTP responses - no real API calls.
 """
 import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -27,17 +28,26 @@ from tools import (
 class TestShadowfaxConnector(unittest.TestCase):
 
     def setUp(self):
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Gateway/provider logging writes to sys.__stdout__, so redirect it to
+        # the active valid stdout stream while tests run.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
+
         self.api_token = "sf_test_token_12345"
         self.client_id = "sf_client_id_67890"
         self.client_secret = "sf_client_secret_abcde"
         self.base_url = "https://api.shadowfax.in"
+
         self.connector = ShadowfaxConnector(
             api_token=self.api_token,
             client_id=self.client_id,
             client_secret=self.client_secret,
             base_url=self.base_url,
+            timeout=2.0,
+            retry_backoff=0.001,
         )
-
     # 1. Connector initialization
     def test_connector_initialization(self):
         connector = ShadowfaxConnector(
@@ -53,6 +63,20 @@ class TestShadowfaxConnector(unittest.TestCase):
         self.assertEqual(connector.provider_name, "SHADOWFAX")
         self.assertTrue(connector.credentials_configured())
         self.assertIsNone(connector.configuration_error())
+
+
+
+    def test_http_client_reused_and_closed(self):
+        first_client = self.connector._get_client()
+        second_client = self.connector._get_client()
+
+        self.assertIs(first_client, second_client)
+        self.assertFalse(first_client.is_closed)
+
+        self.connector.close()
+
+        self.assertIsNone(self.connector._client)
+        self.assertTrue(first_client.is_closed)
 
     # 2. Missing credentials
     def test_missing_credentials(self):
@@ -239,6 +263,24 @@ class TestShadowfaxConnector(unittest.TestCase):
         self.assertEqual(result["code"], "PROVIDER_AUTH_FAILED")
         self.assertTrue(result.get("reconnect_required"))
 
+
+    @patch("httpx.Client.request")
+    def test_provider_403(self, mock_request):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_resp.headers = {}
+        mock_resp.json.return_value = {
+            "error": "Permission denied",
+        }
+
+        mock_request.return_value = mock_resp
+
+        result = self.connector.track_shipment("SF123456")
+
+        self.assertIn("error", result)
+        self.assertEqual(result["code"], "PROVIDER_FORBIDDEN")
+        self.assertEqual(result["http_status"], 403)
+
     # 11. Provider 404 (non-JSON body / API route missing)
     @patch("httpx.Client.request")
     def test_provider_404_non_json(self, mock_request):
@@ -262,6 +304,43 @@ class TestShadowfaxConnector(unittest.TestCase):
         result = self.connector.track_shipment("SF123456")
         self.assertIn("error", result)
         self.assertEqual(result["code"], "RATE_LIMITED")
+
+
+
+    @patch("integrations.providers.shadowfax.time.sleep")
+    @patch("httpx.Client.request")
+    def test_429_retries_then_succeeds(self, mock_request, mock_sleep):
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {
+            "Retry-After": "0",
+        }
+        rate_limited.json.return_value = {
+            "message": "Too many requests",
+        }
+
+        success = MagicMock()
+        success.status_code = 200
+        success.headers = {}
+        success.json.return_value = {
+            "order_details": {
+                "awb_number": "SF123456",
+                "status": "in_transit",
+            },
+            "tracking_details": [],
+        }
+
+        mock_request.side_effect = [
+            rate_limited,
+            success,
+        ]
+
+        result = self.connector.track_shipment("SF123456")
+
+        self.assertEqual(result["awb"], "SF123456")
+        self.assertEqual(result["status"], "IN_TRANSIT")
+        self.assertEqual(mock_request.call_count, 2)
+        mock_sleep.assert_called_once_with(0.0)
 
     # 13. Provider 500 (Server error)
     @patch("httpx.Client.request")
@@ -294,6 +373,75 @@ class TestShadowfaxConnector(unittest.TestCase):
         result = self.connector.track_shipment("SF123456")
         self.assertIn("error", result)
         self.assertEqual(result["code"], "PROVIDER_INVALID_RESPONSE")
+
+
+    @patch("httpx.Client.request")
+    def test_empty_200_response_is_invalid(self, mock_request):
+        empty_response = MagicMock()
+        empty_response.status_code = 200
+        empty_response.headers = {}
+        empty_response.json.side_effect = ValueError("empty response body")
+
+        mock_request.return_value = empty_response
+
+        result = self.connector.track_shipment("SF123456")
+
+        self.assertEqual(
+            result["code"],
+            "PROVIDER_INVALID_RESPONSE",
+        )
+
+        self.assertEqual(
+            result["http_status"],
+            200,
+        )
+
+
+    @patch("httpx.Client.request")
+    def test_large_tracking_history_and_text_are_truncated(self, mock_request):
+        long_description = "X" * 2000
+
+        tracking_details = [
+            {
+                "created": f"2026-09-{(index % 28) + 1:02d}T10:00:00Z",
+                "status": "in_transit",
+                "location": "Transit Hub",
+                "remarks": long_description,
+            }
+            for index in range(150)
+        ]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {
+            "order_details": {
+                "awb_number": "SF123456",
+                "status": "in_transit",
+            },
+            "tracking_details": tracking_details,
+        }
+
+        mock_request.return_value = mock_response
+
+        result = self.connector.track_shipment("SF123456")
+
+        self.assertEqual(
+            len(result["tracking_history"]),
+            100,
+        )
+
+        first_event = result["tracking_history"][0]
+
+        self.assertLessEqual(
+            len(first_event["description"]),
+            550,
+        )
+
+        self.assertIn(
+            "[TRUNCATED FOR TOKEN LIMITS]",
+            first_event["description"],
+        )
 
     # 16. Gateway routing
     def test_gateway_routing(self):
@@ -393,8 +541,23 @@ class TestShadowfaxDocumentedContract(unittest.TestCase):
     STAGING = "https://dale.staging.shadowfax.in/api"
 
     def setUp(self):
-        self.connector = ShadowfaxConnector(api_token="sf_contract_token", base_url=self.STAGING)
-        sleep = patch("integrations.providers.shadowfax.time.sleep")
+        # pytest/Jupyter on Windows can expose an invalid sys.__stdout__ handle.
+        # Provider logging writes to sys.__stdout__, so redirect it to the
+        # active valid stdout stream during contract tests.
+        stdout_patch = patch.object(sys, "__stdout__", sys.stdout)
+        stdout_patch.start()
+        self.addCleanup(stdout_patch.stop)
+
+        self.connector = ShadowfaxConnector(
+            api_token="sf_contract_token",
+            base_url=self.STAGING,
+            timeout=2.0,
+            retry_backoff=0.001,
+        )
+
+        sleep = patch(
+            "integrations.providers.shadowfax.time.sleep",
+        )
         sleep.start()
         self.addCleanup(sleep.stop)
 
@@ -414,13 +577,49 @@ class TestShadowfaxDocumentedContract(unittest.TestCase):
 
         self.connector.check_serviceability("400001", "560001")
 
-        calls = [c.kwargs for c in mock_request.call_args_list]
-        self.assertEqual([c["url"] for c in calls], [f"{self.STAGING}/v1/clients/serviceability/"] * 2)
-        self.assertNotIn("/api/api", calls[0]["url"])
-        self.assertEqual([c["method"] for c in calls], ["GET", "GET"])
-        self.assertEqual(calls[0]["params"], {"service": "seller_pickup", "pincodes": "400001", "page": 1, "count": 10})
-        self.assertEqual(calls[1]["params"], {"service": "customer_delivery", "pincodes": "560001", "page": 1, "count": 10})
-        self.assertEqual(calls[0]["headers"]["Authorization"], "Token sf_contract_token")
+        calls = [call.kwargs for call in mock_request.call_args_list]
+
+        self.assertEqual(
+            [call["url"] for call in calls],
+            [f"{self.STAGING}/v1/clients/serviceability/"] * 2,
+        )
+
+        self.assertNotIn(
+            "/api/api",
+            calls[0]["url"],
+        )
+
+        self.assertEqual(
+            [call["method"] for call in calls],
+            ["GET", "GET"],
+        )
+
+        self.assertEqual(
+            calls[0]["params"],
+            {
+                "service": "seller_pickup",
+                "pincodes": "400001",
+                "page": 1,
+                "count": 10,
+            },
+        )
+
+        self.assertEqual(
+            calls[1]["params"],
+            {
+                "service": "customer_delivery",
+                "pincodes": "560001",
+                "page": 1,
+                "count": 10,
+            },
+        )
+
+        client_headers = self.connector._get_client().headers
+
+        self.assertEqual(
+            client_headers["Authorization"],
+            "Token sf_contract_token",
+        )
 
     @patch("httpx.Client.request")
     def test_pickup_service_is_configurable_and_validated(self, mock_request):
@@ -497,3 +696,5 @@ class TestShadowfaxDocumentedContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

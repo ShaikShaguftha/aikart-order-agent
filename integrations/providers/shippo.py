@@ -1,3 +1,4 @@
+
 """
 Shippo shipping/tracking connector (https://api.goshippo.com/).
 
@@ -127,6 +128,8 @@ class ShippoConnector:
         self.timeout = timeout
         self.retry_backoff = retry_backoff
         self._account_key = hashlib.sha256(self.api_token.encode()).hexdigest()[:16]
+ 
+        self._client: Optional[httpx.Client] = None
 
     @staticmethod
     def environment_for_token(token: str) -> str:
@@ -135,6 +138,22 @@ class ShippoConnector:
 
     def credentials_configured(self) -> bool:
         return bool(self.api_token)
+
+    def _get_client(self) -> httpx.Client:
+        """Reuse persistent HTTP connection pool across all requests."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.Client(timeout=self.timeout)
+        return self._client
+
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+    def close(self) -> None:
+        """Close the underlying HTTP client session."""
+        if self._client is not None and not self._client.is_closed:
+            self._client.close()
+            self._client = None
 
     def _sanitize_error(self, message: str) -> str:
         return str(message).replace(self.api_token, "[REDACTED_TOKEN]") if self.api_token else str(message)
@@ -177,18 +196,18 @@ class ShippoConnector:
         for attempt in range(1, attempts + 1):
             response = None
             try:
-                with httpx.Client(timeout=self.timeout) as client:
-                    response = client.request(
-                        method=method,
-                        url=f"{BASE_URL}/{path}",
-                        params=params,
-                        json=json_data,
-                        headers={
-                            "Authorization": f"ShippoToken {self.api_token}",
-                            "Content-Type": "application/json",
-                            "User-Agent": "Luintix-Shippo-Connector/1.0",
-                        },
-                    )
+                client = self._get_client()
+                response = client.request(
+                    method=method,
+                    url=f"{BASE_URL}/{path}",
+                    params=params,
+                    json=json_data,
+                    headers={
+                        "Authorization": f"ShippoToken {self.api_token}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Luintix-Shippo-Connector/1.0",
+                    },
+                )
                 status = response.status_code
                 log_provider_call(self.provider_name, f"{method} {route}", status)
                 if status in (200, 201):
@@ -217,8 +236,9 @@ class ShippoConnector:
                     return self._error("PROVIDER_ERROR", status)
             except httpx.TimeoutException:
                 last_error = self._error("PROVIDER_TIMEOUT")
-            except httpx.TransportError:
+            except httpx.NetworkError:
                 last_error = self._error("PROVIDER_UNREACHABLE")
+
             except Exception as e:
                 logger.warning(f"[SHIPPO] request failed: {self._sanitize_error(type(e).__name__)}")
                 return self._error("PROVIDER_ERROR")
@@ -248,13 +268,15 @@ class ShippoConnector:
             status = "OUT_FOR_DELIVERY"
         if action_required and status not in TERMINAL_STATUSES:
             status = "EXCEPTION"
+        details = str(raw.get("status_details"))[:200] if raw.get("status_details") else None
+        text_str = str(text)[:200] if text else None
         return {
             "status": status,
             "provider_status": provider_status,
             "substatus": code,
-            "substatus_text": text,
+            "substatus_text": text_str,
             "action_required": action_required,
-            "status_details": raw.get("status_details"),
+            "status_details": details,
             "status_date": raw.get("status_date"),
             "location": cls._location(raw.get("location")),
             "provider_reference": raw.get("object_id"),
@@ -268,9 +290,13 @@ class ShippoConnector:
         current = raw.get("tracking_status")
         if current is not None and not isinstance(current, dict):
             return {"error": cls.ERROR_MESSAGES["PROVIDER_INVALID_RESPONSE"], "code": "PROVIDER_INVALID_RESPONSE"}
-        history_raw = raw.get("tracking_history") or []
-        if not isinstance(history_raw, list):
+        history_raw = raw.get("tracking_history")
+
+        if history_raw is not None and not isinstance(history_raw, list):
+
             return {"error": cls.ERROR_MESSAGES["PROVIDER_INVALID_RESPONSE"], "code": "PROVIDER_INVALID_RESPONSE"}
+
+        history_raw = (history_raw or [])[:100]
         now = cls._event(current) if current else cls._event({"status": "UNKNOWN"})
         service = raw.get("servicelevel") if isinstance(raw.get("servicelevel"), dict) else {}
         return {
@@ -328,10 +354,14 @@ class ShippoConnector:
 
     def get_tracking(self, carrier_slug: str, tracking_number: str) -> Dict[str, Any]:
         """GET /tracks/{carrier}/{tracking_number}, normalized (status, ETA, location, history)."""
+        
         if not carrier_slug or not SLUG_PATTERN.match(carrier_slug):
             return {"error": "Unknown carrier for tracking.", "code": "INVALID_CARRIER"}
         if not valid_tracking_number(tracking_number):
-            return {"error": "That is not a valid tracking number.", "code": "INVALID_TRACKING_NUMBER"}
+            return {
+                "error": "That is not a valid tracking number.",
+                "code": "INVALID_TRACKING_NUMBER",
+            }
         res = self._request("GET", f"tracks/{quote(carrier_slug)}/{quote(tracking_number)}",
                             "tracks/{carrier}/{tracking_number}")
         if isinstance(res, dict) and "error" in res:
