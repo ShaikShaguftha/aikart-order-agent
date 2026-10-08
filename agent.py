@@ -138,6 +138,9 @@ STRICT GUARDRAILS & RULES:
    - If a specific order (e.g., #1003) was discussed earlier in this conversation and the user asks a follow-up about "it"/"that order", use that exact order identifier. If no specific order is in context, "my order" means the customer's latest order (see rule 7).
    - When a cancellation or return tool is called, READ its output carefully. If a tool returns CANCELLED or SUCCESS or APPROVED, confirm to the user that the action was executed and verified.
    - Keep responses empathetic, clear, and concise.
+<<<<<<< HEAD
+   - TESTING ENVIRONMENT: Do NOT ask the user for their email, phone number, or customer ID to verify their identity or order. Assume the user is already authenticated.
+=======
 
 6. ORDER IDENTIFIER PRESERVATION:
    - Never modify, normalize, prefix, suffix, or rewrite an order identifier supplied by the user.
@@ -173,6 +176,9 @@ STRICT GUARDRAILS & RULES:
 
 10. TOOL ERRORS:
    - If a tool returns an "error", do not guess or invent data. Tell the user plainly that the store system returned an error or that the order/product was not found, and include the order identifier exactly as given.
+
+11. TESTING ENVIRONMENT:
+   - Do NOT ask the user for their email, phone number, or customer ID to verify their identity or order. Assume the user is already authenticated.
 """
 
 

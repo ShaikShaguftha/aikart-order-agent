@@ -1,10 +1,5 @@
-﻿.env
-<<<<<<< HEAD
+.env
 .ipynb_checkpoints/
 *.db
 __pycache__/
-=======
-*.db
-__pycache__/
-.ipynb_checkpoints/
->>>>>>> 6bb1add7727a25234d6fc094b2bc7442b4ecd0da
+docs/
