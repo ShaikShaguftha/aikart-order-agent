@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luintix | Smart Order Assistant</title>
+    
+    <!-- Google Fonts: Red Hat Display, Poppins, Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@400;500;600&family=Red+Hat+Display:wght@600;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="/frontend/style.css">
+
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <div class="header-info">
+            <span class="brand-title">Luintix Order Agent</span>
+            <div class="status-badge">
+                <span class="status-dot"></span> Active & Ready
+            </div>
+        </div>
+        <div class="header-controls">
+            <select id="tenantSelect" style="background: rgba(255, 255, 255, 0.2); color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 12px; padding: 5px 8px; font-size: 0.78rem; font-family: var(--font-utility); font-weight: 600; cursor: pointer; outline: none;">
+                <option value="COMP-SHOPIFY" selected style="color: #000;">COMP-SHOPIFY (Shopify)</option>
+                <option value="COMP-WOOCOMMERCE" style="color: #000;">COMP-WOOCOMMERCE (WooCommerce)</option>
+                <option value="COMP-ALPHA" style="color: #000;">COMP-ALPHA (Local DB)</option>
+                <option value="COMP-ZOHO" style="color: #000;">COMP-ZOHO (Zoho CRM)</option>
+                <option value="COMP-SHADOWFAX" style="color: #000;">COMP-SHADOWFAX (Shadowfax Logistics)</option>
+                <option value="COMP-HUBSPOT" style="color: #000;">COMP-HUBSPOT (HubSpot CRM)</option>
+                <option value="COMP-SALESFORCE" style="color: #000;">COMP-SALESFORCE (Salesforce CRM)</option>
+                <option value="COMP-RAZORPAY" style="color: #000;">COMP-RAZORPAY (Razorpay Payments)</option>
+            </select>
+            <button class="test-data-btn" onclick="toggleModal(true)"> Test Data</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="sampleModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Sample Order to Test</h3>
+                <button class="close-btn" onclick="toggleModal(false)">&times;</button>
+            </div>
+            
+            <div class="sample-item" onclick="selectSample('Show me my recent orders')">
+                <div>
+                    <div class="sample-id">Show me my recent orders</div>
+                    <div class="sample-desc">Identity-first: asks for your email/phone, no order ID needed</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Where is my latest order?')">
+                <div>
+                    <div class="sample-id">Where is my latest order?</div>
+                    <div class="sample-desc">Live status of your most recent order</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Show me details of order #1003')">
+                <div>
+                    <div class="sample-id">#1003 (Shopify Store)</div>
+                    <div class="sample-desc">Explicit order number lookup (fallback)</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('What is the status of my order ORD-5001?')">
+                <div>
+                    <div class="sample-id">ORD-5001 (Wireless Headphones)</div>
+                    <div class="sample-desc">Status: DELIVERED | $45.00</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('What is the status of order ORD-5002?')">
+                <div>
+                    <div class="sample-id">ORD-5002 (Smart Gaming Monitor)</div>
+                    <div class="sample-desc">Status: PROCESSING | $250.00 (Requires Escalation)</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Where is my package for order ORD-5003?')">
+                <div>
+                    <div class="sample-id">ORD-5003 (USB-C Hub)</div>
+                    <div class="sample-desc">Status: PROACTIVE_ALERT / DELAYED</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Track order ORD-5004')">
+                <div>
+                    <div class="sample-id">ORD-5004 (Ergonomic Keyboard)</div>
+                    <div class="sample-desc">Status: PROCESSING</div>
+                </div>
+            </div>
+
+            <div class="sample-item" onclick="selectSample('Check status of order ORD-5005')">
+                <div>
+                    <div class="sample-id">ORD-5005 (Mechanical Mouse)</div>
+                    <div class="sample-desc">Status: SHIPPED / IN_TRANSIT</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-box" id="chatBox">
+        <div class="message agent-msg">
+            Hello! I am <strong>Luintix</strong>, your order resolution assistant. How can I help you with your order today?
+        </div>
+    </div>
+
+    <form class="input-area" id="chatForm">
+        <input type="text" id="userInput" placeholder="Ask about your orders (e.g. Where is my latest order?)..." required autocomplete="off">
+        <button type="submit">Send</button>
+    </form>
+</div>
+
+<script src="/frontend/script.js"></script>
+</body>
+</html>
