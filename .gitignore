@@ -6,3 +6,7 @@ orders.db
 full-test-results.txt
 woocommerce-results.txt
 woocommerce-error.log
+logs/
+node_modules/
+test-results/
+playwright-report/

@@ -1,0 +1,24 @@
+{
+  "name": "aikart-order-agent",
+  "version": "1.0.0",
+  "description": "Luintix is a production-grade, autonomous B2B order management agent built using LangChain, FastMCP/Uvicorn, and Groq LLMs.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShaikShaguftha/aikart-order-agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ShaikShaguftha/aikart-order-agent/issues"
+  },
+  "homepage": "https://github.com/ShaikShaguftha/aikart-order-agent#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
+  }
+}

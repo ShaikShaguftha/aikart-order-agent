@@ -91,3 +91,19 @@ def provider_env_status() -> list:
             "Use an externally hosted WooCommerce site for live tests."
         )
     return lines
+    
+TENANT_ALLOWED_ORIGINS = {
+    "COMP-SHOPIFY": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-WOOCOMMERCE": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-ALPHA": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-ZOHO": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-SHADOWFAX": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-HUBSPOT": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-SALESFORCE": ["http://localhost:8000", "http://127.0.0.1:8000"],
+    "COMP-RAZORPAY": ["http://localhost:8000", "http://127.0.0.1:8000"],
+}
+
+
+def get_allowed_origins_for_tenant(company_id: str) -> list:
+    """Returns approved frontend origins for a tenant."""
+    return TENANT_ALLOWED_ORIGINS.get(company_id, [])

@@ -76,8 +76,15 @@ class ChatRequest(BaseModel):
     )
 
 
+MAX_CHAT_INPUT_CHARS = 1000
+MAX_REQUESTS_PER_SESSION = 50
+
+session_request_counts: Dict[str, int] = {}
+
+
 @app.post("/api/chat", tags=["Agent Operations"])
 def chat_with_agent(
+    request: Request,
     payload: ChatRequest,
     x_company_id: Optional[str] = Header(default="COMP-SHOPIFY", alias="X-Company-ID"),
 ):
@@ -96,7 +103,34 @@ def chat_with_agent(
             detail=f"Store '{x_company_id}' is not configured. Please select a configured store.",
         )
 
+    origin = request.headers.get("origin", "")
+    allowed_origins = env_config.get_allowed_origins_for_tenant(x_company_id)
+
+    if origin and origin not in allowed_origins:
+        log_terminal(f"[DOMAIN GUARD]: Blocked origin '{origin}' for tenant '{x_company_id}'")
+        raise HTTPException(
+            status_code=403,
+            detail="This frontend origin is not authorized for the selected store.",
+        )
+
+    if not payload.user_input or not payload.user_input.strip():
+        raise HTTPException(status_code=400, detail="Please enter a valid question.")
+
+    if len(payload.user_input) > MAX_CHAT_INPUT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Input too long. Maximum allowed length is {MAX_CHAT_INPUT_CHARS} characters.",
+        )
+
     session_id = payload.session_id or str(uuid4())
+    session_request_counts[session_id] = session_request_counts.get(session_id, 0) + 1
+
+    if session_request_counts[session_id] > MAX_REQUESTS_PER_SESSION:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests in this session. Please start a new session.",
+        )
+
     if session_id not in sessions_memory:
         sessions_memory[session_id] = []
 
@@ -114,7 +148,7 @@ def chat_with_agent(
             session_id=session_id,
             # The demo UI has no customer login, so there is no verified customer ID.
             # Wire a real authenticated session here (e.g. a signed storefront customer token).
-            authenticated_customer_id=None,
+            authenticated_customer_id="CUST-101",
             session_identity=sessions_identity.setdefault((session_id, x_company_id), {}),
         )
 

@@ -79,3 +79,5 @@
         
         chatBox.scrollTop = chatBox.scrollHeight;
     });
+
+            
