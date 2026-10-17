@@ -284,6 +284,20 @@ def init_db() -> None:
         )
     """)
 
+    # 18. Book-a-Demo requests (landing page form submissions)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS demo_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            store_url TEXT NOT NULL,
+            platform TEXT,
+            volume TEXT,
+            pain_point TEXT,
+            emailed INTEGER NOT NULL DEFAULT 0,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # Schema migration check for existing DB files
     try:
         cursor.execute("ALTER TABLE company_integrations ADD COLUMN webhook_secret TEXT;")

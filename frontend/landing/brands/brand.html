@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store</title>
+    <meta name="robots" content="noindex, nofollow">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/chat-widget.css">
+
+    <style>
+        html, body { margin: 0; padding: 0; background: #ffffff; }
+        #luintix-widget { --font-body: 'Inter', sans-serif; }
+        .shot { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script>
+        /*
+         * Prospect brand demo pages: /zouk, /thebearhouse, ... each shows a
+         * screenshot of that brand's homepage (landing/brands/shots/<slug>.jpg,
+         * their own chat widgets removed) with the chat widget on top.
+         * Slugs must match BRAND_PAGES in server.py.
+         */
+        var BRANDS = {
+            xyxxapparels: ['XYXX', 'India’s Most Loved Men’s Innerwear, Athleisure & Clothing Brand – XYXX Apparels'],
+            thebearhouse: ['The Bear House', 'Shop the Best Men\'s Clothing at The Bear House Online'],
+            zouk: ['Zouk', 'Online Fashion & Lifestyle Store for Bags, Wallets & Luggage - Zouk'],
+            neemans: ['Neeman’s', 'Buy Shoes for Men & Women Online - Neemans'],
+            consciouschemist: ['Conscious Chemist', 'India’s Trusted Skincare Brand | Conscious Chemist'],
+            foxtale: ['Foxtale', 'Foxtale x Shah Rukh Khan | Let Your Glow Through'],
+            chemistatplay: ['Chemist at Play', 'Chemist At Play: Best Skin Care Products for Men & Women'],
+            countrybean: ['Country Bean', 'Country Bean Instant Flavoured Coffee'],
+            godesi: ['GO DESi', 'GO DESi - Making DESI POPular'],
+            ragecoffee: ['Rage Coffee', 'Buy Coffee Online | Best Coffee Brand, Ethiopian Coffee | Rage Coffee'],
+            thejuneshop: ['The June Shop', 'The June Shop - Lifestyle, Home Decor, Artifacts, Gifting and More'],
+            beco: ['Beco', 'Eco-Friendly Home & Personal Care Products | BECO'],
+            sleepycat: ['Sleepycat', 'Buy Mattresses & Pillows online from India\'s Best Mattress Brand'],
+            superbottoms: ['SuperBottoms', 'India\'s #1 Cloth Diaper Brand for Baby | SuperBottoms'],
+            headsupfortails: ['Heads Up For Tails', 'Heads Up For Tails | Trusted Pet Store Online & Near You'],
+            dailyobjects: ['DailyObjects', 'Online Shopping for Phone Cases, Covers, Lifestyle & Personal Accessories - DailyObjects'],
+            stuffcool: ['Stuffcool', 'Stuffcool | Power Banks & GaN Chargers Made in India, Cables & More'],
+            portronics: ['Portronics', 'Portronics | India’s most loved Portable Gadgets Brand'],
+            dotandkey: ['Dot & Key', 'Dot & Key: Natural & Dermatologically Tested Skincare Products'],
+            koskii: ['Koskii', 'Women\'s Occasion Wear – Trendy Styles Online | Koskii'],
+            bewakoof: ['Bewakoof', 'Online Fashion Shopping for Men, Women, Accessories - Bewakoof.com']
+        };
+
+        var SLUG = location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+        var BRAND = BRANDS[SLUG];
+
+        if (BRAND) {
+            document.title = BRAND[1];
+            // Read by chat-widget.js: hide the "Luintix" name, greet as the brand.
+            window.LUINTIX_WIDGET = {
+                hideBrandName: true,
+                greeting: 'Hi! 👋 I\'m the <strong>' + BRAND[0] + '</strong> order assistant. Ask me about tracking, cancellations, returns or refunds.'
+            };
+        }
+    </script>
+</head>
+
+<body>
+    <img class="shot" id="shot" alt="" draggable="false">
+    <script>
+        if (BRAND) document.getElementById('shot').src = '/brands/shots/' + SLUG + '.jpg';
+    </script>
+    <script src="/chat-widget.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,461 @@
+/* ============ BOOK A DEMO PAGE (multi-step) ============ */
+/* Same design tokens as style.css (colors, fonts, radii) - just a simple
+   centered card layout instead of the marketing page's sections. */
+
+/* .demo-page = standalone book-demo.html fallback page.
+   .bdm-overlay = the same card, opened as an in-page modal on index.html
+   (see book-demo-modal.js) - no page navigation. Both share the same
+   backdrop/card styling below. */
+.demo-page,
+.bdm-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.demo-page { min-height: 100vh; }
+
+.bdm-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    overflow-y: auto;
+}
+
+.bdm-overlay.is-open { display: flex; }
+
+body.bdm-lock { overflow: hidden; }
+
+/* Blurred, glassy backdrop - navy blended with white rather than a flat
+   solid navy fill, so the card reads as floating over frosted glass. */
+.demo-page::before,
+.bdm-overlay::before {
+    content: '';
+    position: absolute;
+    inset: -20%;
+    z-index: -1;
+    background: radial-gradient(120% 120% at 50% 0%, rgba(255, 255, 255, 0.65) 0%, #3b4a6b 35%, #0b1220 80%);
+    filter: blur(70px);
+}
+
+.demo-page { background: linear-gradient(160deg, rgba(255, 255, 255, 0.5) 0%, rgba(11, 18, 32, 0.85) 60%); }
+.bdm-overlay { background: linear-gradient(160deg, rgba(255, 255, 255, 0.35) 0%, rgba(11, 18, 32, 0.55) 60%); }
+
+.demo-card {
+    position: relative;
+    width: 100%;
+    max-width: 760px;
+    /* Fixed floor so the card doesn't visibly resize step to step - tall
+       enough to fit the platform step's 8-option grid, the tallest of
+       the four. Shorter steps just leave breathing room below. */
+    min-height: 660px;
+    background: var(--bg-white);
+    border-radius: 24px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+    /* Extra top padding clears the logo/Exit, which now sit flush at the
+       card's own corners instead of inset with the rest of the content. */
+    padding: 90px 56px 56px;
+}
+
+/* Flush to the card's top-left corner, not indented by the card's normal
+   content padding. */
+.demo-brand {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+}
+
+.demo-brand .brand-mark { width: 48px; height: 48px; }
+
+.demo-card-head {
+    position: absolute;
+    /* A bit lower than the logo's own top offset (24px) - the logo is
+       taller now (48px) so this centers Exit against it instead of both
+       just sharing the same top edge. */
+    top: 30px;
+    /* Matches the card's own horizontal padding, so Exit's right edge
+       lines up with Next's right edge below instead of sitting further
+       out toward the card's true corner. */
+    right: 56px;
+}
+
+/* Same size as the Back/Next buttons at the bottom, for visual consistency. */
+.demo-card-head .demo-exit {
+    padding: 10px 24px;
+    font-size: 0.88rem;
+}
+
+/* Thin progress bar that fills in as the visitor advances through steps. */
+.demo-progress {
+    height: 6px;
+    background: var(--border-color);
+    border-radius: var(--radius-pill);
+    margin: 18px 0 36px;
+}
+
+.demo-progress-bar {
+    height: 100%;
+    width: 25%;
+    background: var(--primary-blue);
+    border-radius: var(--radius-pill);
+    transition: width 0.3s ease;
+}
+
+.demo-exit {
+    flex-shrink: 0;
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--deep-navy);
+    text-decoration: none;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    padding: 9px 22px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.demo-exit:hover { background: #fef2f2; border-color: #ef4444; color: #ef4444; }
+
+.demo-title {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.7rem;
+    color: var(--deep-navy);
+    padding: 0;
+    border: none;
+}
+
+/* <legend> renders outside normal flow by default - force it to behave
+   like a plain block heading inside the flex step, with its own explicit
+   gap below it (rather than relying only on the parent's flex `gap`,
+   which legend doesn't always contribute to consistently). */
+legend.demo-title { display: block; width: 100%; margin-bottom: 20px; }
+
+.demo-form { margin-top: 32px; }
+
+/* Steps: one visible at a time, the rest hidden but still in the DOM (so
+   their values persist across Back/Next). */
+.demo-step {
+    display: none;
+    flex-direction: column;
+    gap: 24px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    min-width: 0;
+}
+
+.demo-step.is-active { display: flex; }
+
+.demo-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.demo-label {
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--deep-navy);
+}
+
+.demo-label em {
+    font-style: normal;
+    color: #ef4444;
+    margin-left: 2px;
+}
+
+.demo-field input {
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    color: var(--deep-navy);
+    background: var(--bg-white);
+    border: 1.5px solid var(--border-color);
+    /* Full pill, same rounded language as the site's buttons and the chat
+       widget's own input bar. */
+    border-radius: var(--radius-pill);
+    padding: 12px 20px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.demo-field input:focus { border-color: var(--primary-blue); }
+.demo-field input::placeholder { color: var(--text-soft); }
+.demo-field input.is-touched { border-color: #ef4444; }
+
+/* Radio options styled as selectable cards, matching the input fields'
+   border/radius language. */
+.demo-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Two-column option grid (platform step) - centered heading/subheading to
+   match, since this step reads as a wider standalone question rather than
+   part of the left-aligned form flow. */
+.demo-options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+/* "Other" platform: a text field + Add button that reveals only while
+   that option is selected, spanning both grid columns. Pure CSS via
+   :has() - no JS needed to show/hide it. */
+.demo-other-panel {
+    display: none;
+    grid-column: 1 / -1;
+    gap: 10px;
+}
+
+.demo-options-grid:has(#platformOther:checked) .demo-other-panel {
+    display: flex;
+}
+
+.demo-other-panel input[type="text"] {
+    flex: 1;
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    color: var(--deep-navy);
+    background: var(--bg-white);
+    border: 1.5px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    padding: 12px 20px;
+    outline: none;
+    min-width: 0;
+    transition: border-color 0.15s ease;
+}
+
+.demo-other-panel input[type="text"]:focus { border-color: var(--primary-blue); }
+.demo-other-panel input[type="text"]::placeholder { color: var(--text-soft); }
+
+.demo-other-panel .btn-primary {
+    flex-shrink: 0;
+    padding: 12px 24px;
+    font-size: 0.88rem;
+}
+
+.demo-other-panel.is-confirmed input[type="text"] { border-color: #16a34a; }
+
+[data-step="2"] {
+    align-items: center;
+    text-align: center;
+}
+
+[data-step="2"] .demo-option { text-align: left; }
+
+.demo-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 20px;
+    border: 1.5px solid var(--border-color);
+    /* Full pill, same rounded language as the inputs/buttons - not a
+       soft-corner rectangle. */
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.demo-option:hover { border-color: var(--text-soft); }
+
+.demo-option input[type="radio"],
+.demo-option input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary-blue);
+    flex-shrink: 0;
+}
+
+.demo-option span {
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    color: var(--deep-navy);
+}
+
+.demo-option:has(input:checked) {
+    border-color: var(--primary-blue);
+    background: var(--bg-tint-2);
+}
+
+/* Pinned to the card's bottom corners instead of flowing right after the
+   content - that's what actually fixes the awkward dead space under short
+   steps now that the card has a fixed min-height: the buttons use that
+   space instead of leaving it empty in the middle. */
+.demo-actions {
+    position: absolute;
+    left: 56px;
+    right: 56px;
+    bottom: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.demo-actions-end { justify-content: flex-end; }
+
+.demo-actions .btn-primary,
+.demo-actions .demo-exit {
+    /* Same size as the Exit button up top - one consistent button scale
+       across the whole form. */
+    padding: 10px 24px;
+    font-size: 0.88rem;
+}
+
+.demo-actions .btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Submit confirmation - a small frosted-glass toast (not the whole card)
+   with a Google Pay-style blue tick: the circle pops in with a ripple,
+   then the check mark draws itself. Built by book-demo.js. */
+/* Full-screen blur + dim behind the toast, so only the toast is in focus
+   (it also keeps the toast's white text readable over the white modal). */
+.demo-toast-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1099;
+    background: rgba(10, 15, 31, 0.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.demo-toast-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.demo-toast {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: 1100; /* above the modal overlay (1000) */
+    width: min(340px, calc(100vw - 32px));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 28px 24px 24px;
+    text-align: center;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.demo-toast.is-visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    pointer-events: auto;
+}
+
+.demo-toast-tick {
+    position: relative;
+    width: 64px;
+    height: 64px;
+}
+
+.demo-toast-circle {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--primary-blue);
+    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.5);
+    transform: scale(0);
+}
+
+/* Expanding ring behind the circle, like GPay's success pulse. */
+.demo-toast-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--primary-blue);
+    opacity: 0;
+}
+
+.demo-toast-tick svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: #ffffff;
+}
+
+.demo-toast-tick path {
+    stroke-dasharray: 30;
+    stroke-dashoffset: 30;
+}
+
+.demo-toast.is-visible .demo-toast-circle {
+    animation: demo-tick-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s forwards;
+}
+
+.demo-toast.is-visible .demo-toast-ring {
+    animation: demo-tick-ring 0.9s ease-out 0.3s forwards;
+}
+
+.demo-toast.is-visible .demo-toast-tick path {
+    animation: demo-tick-draw 0.35s ease-out 0.4s forwards;
+}
+
+@keyframes demo-tick-pop {
+    from { transform: scale(0); }
+    to   { transform: scale(1); }
+}
+
+@keyframes demo-tick-ring {
+    0%   { opacity: 0.6; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.8); }
+}
+
+@keyframes demo-tick-draw {
+    to { stroke-dashoffset: 0; }
+}
+
+.demo-toast-msg {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.5;
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .demo-toast { transition: opacity 0.2s ease; }
+    .demo-toast.is-visible .demo-toast-circle,
+    .demo-toast.is-visible .demo-toast-ring,
+    .demo-toast.is-visible .demo-toast-tick path { animation: none; }
+    .demo-toast-circle { transform: scale(1); }
+    .demo-toast-tick path { stroke-dashoffset: 0; }
+}
+
+@media (max-width: 600px) {
+    .demo-options-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+    .demo-card { padding: 24px 20px; }
+    .demo-title { font-size: 1.4rem; }
+}
