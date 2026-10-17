@@ -1,6 +1,12 @@
 ﻿.env
+.ipynb_checkpoints/
 *.db
 __pycache__/
-.ipynb_checkpoints/
-
-docs/
+orders.db
+full-test-results.txt
+woocommerce-results.txt
+woocommerce-error.log
+logs/
+node_modules/
+test-results/
+playwright-report/
