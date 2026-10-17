@@ -10,7 +10,7 @@ from uuid import uuid4
 from agent import process_query
 from database import execute_db, init_db, query_db
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
@@ -746,6 +746,28 @@ def serve_chat_ui():
 def demo_redirect():
     """Convenience alias — /demo takes visitors straight to the full-page chat client."""
     return RedirectResponse(url="/ui")
+
+
+# Prospect brand demo pages: /zouk, /thebearhouse, ... all serve one template
+# (landing/brands/brand.html) that shows landing/brands/shots/<slug>.jpg with
+# the chat widget on top. Keep in sync with BRANDS in brand.html.
+BRAND_PAGES = (
+    "xyxxapparels", "thebearhouse", "consciouschemist", "countrybean", "godesi",
+    "thejuneshop", "ragecoffee", "beco", "foxtale", "chemistatplay",
+    "zouk", "neemans", "superbottoms", "dailyobjects", "stuffcool",
+    "portronics", "koskii", "sleepycat", "headsupfortails", "dotandkey",
+    "bewakoof",
+)
+BRAND_TEMPLATE = os.path.join(LANDING_DIR, "brands", "brand.html")
+
+
+def brand_page():
+    return FileResponse(BRAND_TEMPLATE)
+
+
+for _slug in BRAND_PAGES:
+    app.add_api_route(f"/{_slug}", brand_page, methods=["GET"], include_in_schema=False)
+    app.add_api_route(f"/{_slug}/", brand_page, methods=["GET"], include_in_schema=False)
 
 
 # Serves the marketing landing page (landing/index.html + assets) at the site root.

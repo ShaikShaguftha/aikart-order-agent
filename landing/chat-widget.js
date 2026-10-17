@@ -103,6 +103,11 @@
         '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
         '</svg>';
 
+    // Optional per-page overrides. The landing page sets nothing, so it keeps
+    // the defaults; the prospect brand pages (landing/brands/) set
+    // window.LUINTIX_WIDGET = { hideBrandName: true, greeting: '...' }.
+    var CFG = window.LUINTIX_WIDGET || {};
+
     var API_URL = '/api/chat';
     var SESSION_KEY = 'luintix_session_id';
     var SIZE = 72; // matches aiKart's launcher size
@@ -116,15 +121,16 @@
     /* ============ Build DOM ============ */
 
     function buildWidget() {
+        var label = CFG.hideBrandName ? 'Chat with us' : 'Chat with Luintix';
         var root = el(
             '<div id="luintix-widget">' +
-                '<button type="button" class="lw-launcher" id="lwLauncher" aria-label="Chat with Luintix" aria-expanded="false">' +
+                '<button type="button" class="lw-launcher" id="lwLauncher" aria-label="' + label + '" aria-expanded="false">' +
                     '<span class="lw-avatar" id="lwAvatar"></span>' +
                 '</button>' +
-                '<div class="lw-panel" id="lwPanel" role="dialog" aria-label="Luintix chat">' +
+                '<div class="lw-panel" id="lwPanel" role="dialog" aria-label="' + (CFG.hideBrandName ? 'Chat' : 'Luintix chat') + '">' +
                     '<div class="lw-brand">' +
                         '<span class="lw-brand-mark" id="lwHeadAvatar"></span>' +
-                        '<span class="lw-brand-name">Luintix</span>' +
+                        (CFG.hideBrandName ? '' : '<span class="lw-brand-name">Luintix</span>') +
                     '</div>' +
                     '<div class="lw-body" id="lwBody"></div>' +
                     '<form class="lw-input-row" id="lwForm">' +
@@ -177,7 +183,7 @@
 
         addMessage(
             body,
-            'Hi, I\'m <strong>Luintix</strong>, aiKart\'s AI order assistant. Ask me about tracking, cancellations, returns or refunds.',
+            CFG.greeting || 'Hi, I\'m <strong>Luintix</strong>, aiKart\'s AI order assistant. Ask me about tracking, cancellations, returns or refunds.',
             'bot',
             true
         );
