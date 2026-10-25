@@ -20,7 +20,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, ToolMessage
 
-import agent
+from backend import agent
 from backend.database import execute_db, init_db
 from backend.integrations import credential_store
 from backend.integrations.providers.shippo import _EndpointBudget

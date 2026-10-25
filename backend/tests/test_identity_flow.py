@@ -3,8 +3,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
-
-import agent
+from backend import agent
 from backend.database import init_db
 from backend.integrations.gateway import gateway
 from backend.integrations.models import CustomerIdentity

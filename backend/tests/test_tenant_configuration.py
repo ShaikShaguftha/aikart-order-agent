@@ -17,7 +17,7 @@ import httpx
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, ToolMessage
 
-import agent
+from backend import agent 
 from backend.database import DEFAULT_TENANTS, init_db
 from backend.integrations.errors import TenantConfigurationError
 from backend.integrations.gateway import gateway
