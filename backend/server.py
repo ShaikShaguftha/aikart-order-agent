@@ -22,11 +22,17 @@ from pydantic import BaseModel, Field
 # Configure Uvicorn logger
 logger = logging.getLogger("uvicorn.error")
 
-
-def log_terminal(msg: str):
-    """Forcibly flushes logging text directly into the real terminal window."""
-    sys.__stdout__.write(f"{msg}\n")
-    sys.__stdout__.flush()
+def log_terminal(msg: str) -> None:
+    try:
+        stream = sys.__stdout__ or sys.stdout
+        stream.write(f"{msg}\n")
+        stream.flush()
+    except (OSError, ValueError, AttributeError):
+        try:
+            sys.stdout.write(f"{msg}\n")
+            sys.stdout.flush()
+        except Exception:
+            pass  # never let logging crash a request
 
 
 @asynccontextmanager
