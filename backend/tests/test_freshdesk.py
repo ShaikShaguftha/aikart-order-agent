@@ -16,7 +16,7 @@ import httpx
 from cryptography.fernet import Fernet
 from langchain_core.messages import AIMessage
 
-import agent
+from backend import agent
 from backend.database import execute_db, init_db, query_db
 from backend.integrations import credential_store
 from backend.integrations.errors import TenantConfigurationError

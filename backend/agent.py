@@ -769,14 +769,6 @@ def process_query(
             _write_llm_log(trace)
             return f"Your message is too long. Please keep it under {MAX_INPUT_CHARS} characters."
 
-        if not authenticated_customer_id:
-            trace["execution"]["status"] = "AUTHENTICATION_REQUIRED"
-            _write_llm_log(trace)
-            return (
-                "For security, please sign in or verify your account before I can access "
-                "order information."
-            )
-
         log_agent(
             f"\n---> [AGENT STARTED | Request: {request_id[:8]} | Tenant: {tenant_id} | "
             f"Session: {sess_id[:8]}]: '{user_input}'"

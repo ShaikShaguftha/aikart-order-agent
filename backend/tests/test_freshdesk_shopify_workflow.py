@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 from cryptography.fernet import Fernet
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
-import agent
+from backend import agent
 from backend.database import execute_db, init_db
 from backend.integrations import credential_store
 from backend.integrations.gateway import gateway

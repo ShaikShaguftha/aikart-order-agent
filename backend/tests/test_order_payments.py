@@ -15,7 +15,7 @@ import httpx
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, ToolMessage
 
-import agent
+from backend import agent
 from backend.database import init_db
 from backend.integrations.gateway import gateway
 from backend.integrations.payment_mapping import map_transaction, parse_receipt, rule_for_gateway
